@@ -9,10 +9,8 @@ from groq import Groq
 client = Groq(api_key=os.environ.get("GROQ_API_KEY", ""))
 VERIFY_TOKEN = os.environ.get("VERIFY_TOKEN", "")
 
-# ফেসবুক অ্যাপ ক্রেডেনশিয়ালস (রেন্ডার এনভায়রনমেন্ট ভেরিয়েবল থেকে নেবে)
 FB_APP_ID = os.environ.get("FB_APP_ID", "")
 FB_APP_SECRET = os.environ.get("FB_APP_SECRET", "")
-# তোর রেন্ডার লাইভ লিংক বা লোকালহোস্ট (যেমন: https://agent-for-me.onrender.com)
 BASE_URL = os.environ.get("BASE_URL", "http://localhost:5000")
 
 # --- ডাটাবেস সেটআপ ---
@@ -74,7 +72,7 @@ def save_message_to_db(page_id, sender_id, role, content):
 flask_app = Flask(__name__)
 flask_app.secret_key = os.environ.get("FLASK_SECRET_KEY", "super_secret_key_autocraft")
 
-# --- আপডেট করা SaaS ড্যাশবোর্ড (যেখানে শুধু প্রম্পট লিখে ফেসবুক কানেক্ট বাটনে ক্লিক করতে হবে) ---
+# --- আপডেট করা SaaS ড্যাশবোর্ড (ON/OFF সুইচসহ) ---
 HTML_TEMPLATE = """
 <!DOCTYPE html>
 <html lang="bn">
@@ -85,23 +83,34 @@ HTML_TEMPLATE = """
     <style>
         body { background-color: #121212; color: #ffffff; font-family: Arial, sans-serif; text-align: center; margin: 0; padding: 40px 20px; }
         .card { background: #1e1e1e; max-width: 500px; margin: 0 auto; padding: 30px; border-radius: 12px; box-shadow: 0 4px 15px rgba(0,0,0,0.5); text-align: left; }
-        textarea, button { width: 100%; padding: 12px; margin: 10px 0; border-radius: 6px; border: none; font-size: 15px; box-sizing: border-box; }
-        textarea { background: #2a2a2a; color: white; resize: vertical; height: 140px; }
-        .fb-btn { background-color: #1877f2; color: white; font-weight: bold; cursor: pointer; text-align: center; display: block; text-decoration: none; padding: 12px; border-radius: 6px; }
-        .fb-btn:hover { opacity: 0.9; }
+        textarea, button, select { width: 100%; padding: 12px; margin: 10px 0; border-radius: 6px; border: none; font-size: 15px; box-sizing: border-box; }
+        textarea { background: #2a2a2a; color: white; resize: vertical; height: 120px; }
+        .status-box { background: #2a2a2a; padding: 15px; border-radius: 6px; margin-bottom: 20px; }
         h2, p { text-align: center; }
     </style>
 </head>
 <body>
     <div class="card">
         <h2>AutoCraft SaaS Bot</h2>
-        <p style="color: #00ffcc; font-size: 14px;">আপনার এআই নির্দেশিকা লিখে সরাসরি ফেসবুক পেজ কানেক্ট করুন</p>
+        <p style="color: #00ffcc; font-size: 14px;">ফেসবুক পেজ অটোমেশন ও এআই কনফিগারেশন</p>
         
+        {% if connected_pages %}
+        <div class="status-box">
+            <h4 style="margin: 0 0 10px 0; color: #28a745;">কানেক্টেড পেজসমূহ:</h4>
+            {% for p in connected_pages %}
+                <p style="text-align: left; margin: 5px 0;"><b>পেজ:</b> {{ p[1] }} | <b>স্ট্যাটাস:</b> {{ 'চালু (ON)' if p[2] == 1 else 'বন্ধ (OFF)' }}</p>
+            {% endfor %}
+            <form action="/toggle-bot" method="POST" style="margin-top: 10px;">
+                <button type="submit" style="background-color: #dc3545; color: white; cursor: pointer;">বট অন/অফ টগল করুন</button>
+            </form>
+        </div>
+        {% endif %}
+
         <form action="/save-prompt" method="POST">
             <label>বটের জন্য নির্দেশিকা বা System Prompt:</label>
-            <textarea name="custom_prompt" placeholder="যেমন: আপনি ফেশন হাউসের সেলস প্রতিনিধি। কাস্টমারকে আমাদের নতুন কালেকশন দেখাবেন এবং অর্ডার কনফার্ম করার জন্য ফোন নম্বর ও ঠিকানা চাইবেন..." required></textarea>
+            <textarea name="custom_prompt" placeholder="যেমন: আপনি ফেশন হাউসের সেলস প্রতিনিধি..." required></textarea>
             
-            <button type="submit" style="background-color: #28a745; color: white; font-weight: bold; cursor: pointer;">প্রম্পট সেভ করুন ও ফেসবুক দিয়ে লগইন করুন</button>
+            <button type="submit" style="background-color: #1877f2; color: white; font-weight: bold; cursor: pointer;">প্রম্পট সেভ করুন ও ফেসবুক দিয়ে কানেক্ট করুন</button>
         </form>
     </div>
 </body>
@@ -110,14 +119,29 @@ HTML_TEMPLATE = """
 
 @flask_app.route("/")
 def dashboard():
-    return render_template_string(HTML_TEMPLATE)
+    conn = sqlite3.connect("bot_memory.db")
+    cursor = conn.cursor()
+    cursor.execute("SELECT page_id, client_name, bot_status FROM clients")
+    connected_pages = cursor.fetchall()
+    conn.close()
+    return render_template_string(HTML_TEMPLATE, connected_pages=connected_pages)
+
+@flask_app.route("/toggle-bot", methods=["POST"])
+def toggle_bot():
+    conn = sqlite3.connect("bot_memory.db")
+    cursor = conn.cursor()
+    cursor.execute("SELECT page_id, bot_status FROM clients")
+    row = cursor.fetchone()
+    if row:
+        new_status = 0 if row[1] == 1 else 1
+        cursor.execute("UPDATE clients SET bot_status = ? WHERE page_id = ?", (new_status, row[0]))
+        conn.commit()
+    conn.close()
+    return redirect("/")
 
 @flask_app.route("/save-prompt", methods=["POST"])
 def save_prompt():
-    # ক্লায়েন্টের প্রম্পটটি সাময়িকবাবে সেশনে সেভ করে ফেসবুক অথ-এ পাঠানো হচ্ছে
     session['custom_prompt'] = request.form.get("custom_prompt")
-    
-    # ফেসবুক লগইন ইউআরএলে রিডাইরেক্ট করা (যাতে পেজ ম্যানেজমেন্ট পারমিশন নেওয়া যায়)
     fb_login_url = (
         f"https://www.facebook.com/v18.0/dialog/oauth?"
         f"client_id={FB_APP_ID}&"
@@ -134,7 +158,6 @@ def facebook_callback():
         
     custom_prompt = session.get('custom_prompt', "আপনি এই পেজের প্রফেশনাল এআই অ্যাসিস্ট্যান্ট।")
 
-    # ১. ইউজার কোড দিয়ে ফেসবুক থেকে শর্ট-লিভড ইউজার এক্সেস টোকেন আনা
     token_url = (
         f"https://graph.facebook.com/v18.0/oauth/access_token?"
         f"client_id={FB_APP_ID}&"
@@ -148,15 +171,13 @@ def facebook_callback():
     if not user_access_token:
         return f"Token Error: {res}", 400
 
-    # ২. ইউজারের পেজগুলোর লিস্ট এবং পেজ এক্সেস টোকেন ফেচ করা
     pages_url = f"https://graph.facebook.com/v18.0/me/accounts?access_token={user_access_token}"
     pages_res = requests.get(pages_url).json()
     
     pages = pages_res.get("data", [])
     if not pages:
-        return "কোনো ফেসবুক পেজ পাওয়া যায়নি! দয়া করে আপনার একটি ফেসবুক পেজ থাকা নিশ্চিত করুন।", 400
+        return "কোনো ফেসবুক পেজ পাওয়া যায়নি!", 400
 
-    # আপাতত ইউজারের প্রথম পেজটি অটো-সিলেক্ট করে কানেক্ট করে দিচ্ছি (বা মাল্টি-পেজ লিস্টও দেখানো যায়)
     conn = sqlite3.connect("bot_memory.db")
     cursor = conn.cursor()
 
@@ -165,23 +186,21 @@ def facebook_callback():
         page_name = page["name"]
         page_access_token = page["access_token"]
 
-        # ডাটাবেসে পেজ আইডি, টোকেন ও প্রম্পট সেভ করা
         cursor.execute("""
             INSERT OR REPLACE INTO clients (page_id, page_access_token, client_name, custom_prompt, bot_status)
             VALUES (?, ?, ?, ?, 1)
         """, (page_id, page_access_token, page_name, custom_prompt))
 
-        # অটোমেটিক ফেসবুক ওয়েবহুকের জন্য পেজ সাবস্ক্রাইব করানো
         sub_url = f"https://graph.facebook.com/v18.0/{page_id}/subscribed_apps?subscribed_fields=messages&access_token={page_access_token}"
         requests.post(sub_url)
 
     conn.commit()
     conn.close()
 
-    return f"""
+    return """
     <div style='background:#121212; color:white; text-align:center; padding:50px; font-family:Arial;'>
-        <h1 style='color:#28a745;'>অভিনন্দন! আপনার ফেসবুক পেজ সফলভাবে কানেক্ট হয়েছে।</h1>
-        <p>বট এখন থেকে আপনার পেজে অটোমেটিক মেসেজ রিপ্লাই করবে।</p>
+        <h1 style='color:#28a745;'>অভিনন্দন! আপনার ফেসবুক পেজ সফলভাবে কানেক্ট হয়েছে।</h1>
+        <p><a href='/' style='color:#00ffcc;'>ড্যাশবোর্ডে ফিরে যান</a></p>
     </div>
     """
 
@@ -296,5 +315,5 @@ def send_facebook_message(page_id, recipient_id, message_text, page_access_token
     requests.post(url, json=payload, headers=headers)
 
 if __name__ == "__main__":
-    port = int(os.environ.get("PORT", 5000))
-    flask_app.run(host="0.0.0.0", port=port)
+    port = int(os.environ.S("PORT", 5000)) if "PORT" in os.environ else 5000
+    flask_app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
