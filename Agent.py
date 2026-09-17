@@ -6,11 +6,8 @@ from flask import Flask, request, jsonify, render_template_string
 from groq import Groq
 
 # --- কনফিগারেশন ---
-# ক্লাউডের এনভায়রনমেন্ট থেকে বা সরাসরি এখানে কি বসাতে পারো
 client = Groq(api_key=os.environ.get("GROQ_API_KEY", ""))
-
-PAGE_ACCESS_TOKEN = os.environ.get("PAGE_ACCESS_TOKEN", "")
-VERIFY_TOKEN = os.environ.get("VERIFY_TOKEN", "autocraft_secure_token_123")
+VERIFY_TOKEN = os.environ.get("VERIFY_TOKEN", "")
 
 SYSTEM_PROMPT = """
 তুমি AutoCraft Agency-এর একজন প্রফেশনাল বিজনেস অটোমেশন স্পেশালিস্ট।
@@ -31,12 +28,25 @@ SYSTEM_PROMPT = """
 ৪. মেসেজ সাইজ: উত্তর ২-৩ বাক্যের বেশি দেবে না। ছোট ছোট মেসেজে চ্যাট করবে।
 """
 
-# --- ডাটাবেস সেটআপ (মেমোরি ধরে রাখার জন্য) ---
+# --- ডাটাবেস সেটআপ (মাল্টি-টেনেন্ট: ক্লায়েন্ট টোকেন এবং চ্যাট মেমোরি) ---
 def init_db():
     conn = sqlite3.connect("bot_memory.db")
     cursor = conn.cursor()
+    
+    # ১. ক্লায়েন্টদের পেজ ও টোকেন সেভ রাখার টেবিল
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS clients (
+            page_id TEXT PRIMARY KEY,
+            page_access_token TEXT,
+            client_name TEXT,
+            bot_status BOOLEAN DEFAULT 1
+        )
+    """)
+    
+    # ২. চ্যাট হিস্ট্রি টেবিল (কোন পেজের কোন ইউজারের চ্যাট তা আলাদা করার জন্য page_id যুক্ত করা হয়েছে)
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS chat_history (
+            page_id TEXT,
             sender_id TEXT,
             role TEXT,
             content TEXT
@@ -47,10 +57,21 @@ def init_db():
 
 init_db()
 
-def get_user_history(sender_id):
+# ডাটাবেس থেকে নির্দিষ্ট পেজের টোকেন আনার ফাংশন
+def get_client_token(page_id):
     conn = sqlite3.connect("bot_memory.db")
     cursor = conn.cursor()
-    cursor.execute("SELECT role, content FROM chat_history WHERE sender_id = ?", (sender_id,))
+    cursor.execute("SELECT page_access_token, bot_status FROM clients WHERE page_id = ?", (page_id,))
+    row = cursor.fetchone()
+    conn.close()
+    if row:
+        return row[0], row[1] # token, bot_status
+    return None, False
+
+def get_user_history(page_id, sender_id):
+    conn = sqlite3.connect("bot_memory.db")
+    cursor = conn.cursor()
+    cursor.execute("SELECT role, content FROM chat_history WHERE page_id = ? AND sender_id = ?", (page_id, sender_id))
     rows = cursor.fetchall()
     conn.close()
     
@@ -59,51 +80,51 @@ def get_user_history(sender_id):
         history.append({"role": row[0], "content": row[1]})
     return history
 
-def save_message_to_db(sender_id, role, content):
+def save_message_to_db(page_id, sender_id, role, content):
     conn = sqlite3.connect("bot_memory.db")
     cursor = conn.cursor()
-    cursor.execute("INSERT INTO chat_history (sender_id, role, content) VALUES (?, ?, ?)", (sender_id, role, content))
+    cursor.execute("INSERT INTO chat_history (page_id, sender_id, role, content) VALUES (?, ?, ?, ?)", (page_id, sender_id, role, content))
     conn.commit()
     conn.close()
 
 # Flask অ্যাপ সেটআপ
 flask_app = Flask(__name__)
-BOT_IS_RUNNING = False  # গ্লোবাল রিমোট সুইচ
 
-# --- রিমোট কন্ট্রোল ড্যাশবোর্ড (মোবাইল ও পিসি ফ্রেন্ডলি ওয়েব UI) ---
+# --- SaaS ড্যাশবোর্ড (যেখান থেকে নতুন ক্লায়েন্ট তাদের পেজ ও টোকেন রেজিস্টার করবে) ---
 HTML_TEMPLATE = """
 <!DOCTYPE html>
 <html lang="bn">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>AutoCraft Remote Controller</title>
+    <title>AutoCraft SaaS Onboarding</title>
     <style>
-        body { background-color: #121212; color: #ffffff; font-family: Arial, sans-serif; text-align: center; margin: 0; padding: 50px 20px; }
-        .card { background: #1e1e1e; max-width: 400px; margin: 0 auto; padding: 30px; border-radius: 12px; box-shadow: 0 4px 15px rgba(0,0,0,0.5); }
-        .status { font-size: 18px; font-weight: bold; padding: 12px; border-radius: 8px; margin-bottom: 25px; }
-        .running { background-color: #28a745; color: white; }
-        .stopped { background-color: #dc3545; color: white; }
-        .btn { display: inline-block; padding: 12px 25px; font-size: 16px; font-weight: bold; color: white; border: none; border-radius: 8px; cursor: pointer; text-decoration: none; margin: 5px; }
-        .btn-start { background-color: #28a745; }
-        .btn-stop { background-color: #dc3545; }
-        .btn:hover { opacity: 0.8; }
+        body { background-color: #121212; color: #ffffff; font-family: Arial, sans-serif; text-align: center; margin: 0; padding: 40px 20px; }
+        .card { background: #1e1e1e; max-width: 450px; margin: 0 auto; padding: 30px; border-radius: 12px; box-shadow: 0 4px 15px rgba(0,0,0,0.5); text-align: left; }
+        input, button { width: 100%; padding: 12px; margin: 10px 0; border-radius: 6px; border: none; font-size: 15px; box-sizing: border-box; }
+        input { background: #2a2a2a; color: white; }
+        button { background-color: #28a745; color: white; font-weight: bold; cursor: pointer; }
+        button:hover { opacity: 0.8; }
+        h2, p { text-align: center; }
     </style>
 </head>
 <body>
     <div class="card">
-        <h2>AutoCraft Remote Panel</h2>
-        <p style="color: #00ffcc; margin-bottom: 25px;">ফেইসবুক পেজ অটোমেশন রিমোট কন্ট্রোলার</p>
+        <h2>AutoCraft SaaS Bot</h2>
+        <p style="color: #00ffcc; font-size: 14px;">আপনার ফেসবুক পেজ বট কানেক্ট করুন</p>
         
-        {% if bot_status %}
-            <div class="status running">🟢 BOT IS LIVE & RUNNING</div>
-            <a href="/toggle" class="btn btn-stop">⏹ STOP BOT</a>
-        {% else %}
-            <div class="status stopped">🔴 BOT IS CURRENTLY OFF</div>
-            <a href="/toggle" class="btn btn-start">▶ START BOT</a>
-        {% endif %}
-        
-        <p style="font-size: 12px; color: #888; margin-top: 30px;">যেকোনো মোবাইল বা পিসি থেকে এই লিংকে এসে বট কন্ট্রোল করতে পারবেন।</p>
+        <form action="/register" method="POST">
+            <label>ক্লায়েন্ট / পেজের নাম:</label>
+            <input type="text" name="client_name" placeholder="যেমন: Fashion House" required>
+            
+            <label>ফেসবুক পেজ আইডি (Page ID):</label>
+            <input type="text" name="page_id" placeholder="যেমন: 10293848576" required>
+            
+            <label>পেজ এক্সেস টোকেন (Page Access Token):</label>
+            <input type="text" name="page_access_token" placeholder="EAAG..." required>
+            
+            <button type="submit">বট একটিভ করুন</button>
+        </form>
     </div>
 </body>
 </html>
@@ -111,19 +132,28 @@ HTML_TEMPLATE = """
 
 @flask_app.route("/")
 def dashboard():
-    return render_template_string(HTML_TEMPLATE, bot_status=BOT_IS_RUNNING)
+    return render_template_string(HTML_TEMPLATE)
 
-@flask_app.route("/toggle")
-def toggle_bot():
-    global BOT_IS_RUNNING
-    BOT_IS_RUNNING = not BOT_IS_RUNNING
-    return dashboard()
+@flask_app.route("/register", methods=["POST"])
+def register_client():
+    client_name = request.form.get("client_name")
+    page_id = request.form.get("page_id")
+    page_access_token = request.form.get("page_access_token")
+    
+    conn = sqlite3.connect("bot_memory.db")
+    cursor = conn.cursor()
+    cursor.execute("""
+        INSERT OR REPLACE INTO clients (page_id, page_access_token, client_name, bot_status)
+        VALUES (?, ?, ?, 1)
+    """, (page_id, page_access_token, client_name))
+    conn.commit()
+    conn.close()
+    
+    return f"<h1 style='color:white; background:#121212; text-align:center; padding:50px;'>অভিনন্দন! {client_name} পেজের জন্য বট সফলভাবে কানেক্ট হয়েছে।</h1>"
 
-# --- ফেসগুক ওয়েব হুক রাউট ---
+# --- সিঙ্গেল ফেসবুক ওয়েব হুক রাউট (সকল ক্লায়েন্টের জন্য একটিমাত্র লিংক) ---
 @flask_app.route("/webhook", methods=["GET", "POST"])
 def facebook_webhook():
-    global BOT_IS_RUNNING
-    
     if request.method == "GET":
         mode = request.args.get("hub.mode")
         token = request.args.get("hub.verify_token")
@@ -137,14 +167,20 @@ def facebook_webhook():
         return "Hello World", 200
 
     if request.method == "POST":
-        # যদি রিমোট থেকে বট অফ করা থাকে, তবে মেসেজ ইগ্নোর করবে
-        if not BOT_IS_RUNNING:
-            return jsonify({"status": "bot is off"}), 200
-
         data = request.json
         try:
             if data.get("object") == "page":
                 for entry in data.get("entry", []):
+                    # ইনকামিং মেসেজ কোন পেজ থেকে এসেছে তা শনাক্ত করা
+                    page_id = entry.get("id")
+                    
+                    # ডাটাবেস থেকে ওই পেজের টোকেন এবং বট স্ট্যাটাস চেক করা
+                    page_access_token, bot_is_running = get_client_token(page_id)
+                    
+                    # যদি পেজটি রেজিস্টার্ড না থাকে অথবা বট অফ থাকে, তবে ইগ্নোর করবে
+                    if not page_access_token or not bot_is_running:
+                        continue
+
                     for messaging_event in entry.get("messaging", []):
                         sender_id = messaging_event["sender"]["id"]
                         
@@ -165,7 +201,7 @@ def facebook_webhook():
                                     user_message_text = "ভয়েস মেসেজ পাঠানো হয়েছে।"
 
                         if user_message_text or image_url or audio_url:
-                            chat_messages = get_user_history(sender_id)
+                            chat_messages = get_user_history(page_id, sender_id)
                             final_input_text = user_message_text
 
                             if audio_url:
@@ -183,12 +219,14 @@ def facebook_webhook():
                                 final_input_text = f"[Voice Transcribed]: {transcription}"
                                 os.remove(audio_path)
 
-                            save_message_to_db(sender_id, "user", final_input_text)
+                            save_message_to_db(page_id, sender_id, "user", final_input_text)
                             chat_messages.append({"role": "user", "content": final_input_text})
 
                             ai_reply = generate_ai_reply(chat_messages, image_url)
-                            save_message_to_db(sender_id, "assistant", ai_reply)
-                            send_facebook_message(sender_id, ai_reply)
+                            save_message_to_db(page_id, sender_id, "assistant", ai_reply)
+                            
+                            # নির্দিষ্ট ক্লায়েন্টের টোকেন দিয়ে রিপ্লাই পাঠানো
+                            send_facebook_message(page_id, sender_id, ai_reply, page_access_token)
                             
         except Exception as e:
             print(f"Error processing webhook: {e}")
@@ -197,7 +235,7 @@ def facebook_webhook():
 
 def generate_ai_reply(messages, image_url=None):
     try:
-        model_to_use = "qwen/qwen3.8-27b" # আপনার নির্দিষ্ট মডেল
+        model_to_use = "qwen/qwen3.8-27b"
         
         if image_url:
             img_response = requests.get(image_url)
@@ -221,8 +259,8 @@ def generate_ai_reply(messages, image_url=None):
     except Exception as e:
         return f"দুঃখিত, এই মুহূর্তে একটু সমস্যা হচ্ছে। ({str(e)})"
 
-def send_facebook_message(recipient_id, message_text):
-    url = f"https://graph.facebook.com/v18.0/me/messages?access_token={PAGE_ACCESS_TOKEN}"
+def send_facebook_message(page_id, recipient_id, message_text, page_access_token):
+    url = f"https://graph.facebook.com/v18.0/me/messages?access_token={page_access_token}"
     payload = {
         "recipient": {"id": recipient_id},
         "message": {"text": message_text}
