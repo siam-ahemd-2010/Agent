@@ -415,7 +415,7 @@ def facebook_webhook():
                             save_message_to_db(page_id, sender_id, "user", final_input_text)
                             chat_messages.append({"role": "user", "content": final_input_text})
 
-                            ai_reply = generate_ai_reply(chat_messages, image_url)
+                            ai_reply = generate_ai_reply(chat_messages)
                             save_message_to_db(page_id, sender_id, "assistant", ai_reply)
                             
                             send_facebook_message(page_id, sender_id, ai_reply, page_access_token)
@@ -425,20 +425,9 @@ def facebook_webhook():
             
         return jsonify({"status": "event received"}), 200
 
-def generate_ai_reply(messages, image_url=None):
+def generate_ai_reply(messages):
     try:
-        model_to_use = "llama-3.3-70b-versatile"
-        if image_url:
-            model_to_use = "llama-3.2-11b-vision-preview"
-            img_response = requests.get(image_url)
-            base64_image = base64.b64encode(img_response.content).decode('utf-8')
-            messages[-1] = {
-                "role": "user",
-                "content": [
-                    {"type": "text", "text": messages[-1]["content"]},
-                    {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{base64_image}"}}
-                ]
-            }
+        model_to_use = "qwen/qwen3.8-27b"
 
         completion = client.chat.completions.create(
             model=model_to_use,
