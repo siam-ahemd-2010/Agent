@@ -72,7 +72,7 @@ def save_message_to_db(page_id, sender_id, role, content):
 flask_app = Flask(__name__)
 flask_app.secret_key = os.environ.get("FLASK_SECRET_KEY", "super_secret_key_autocraft")
 
-# --- আপডেট করা SaaS ড্যাশবোর্ড (ON/OFF সুইচসহ) ---
+# --- আপডেট করা ড্যাশবোর্ড (আলাদা আলাদা ON/OFF বাটনসহ) ---
 HTML_TEMPLATE = """
 <!DOCTYPE html>
 <html lang="bn">
@@ -82,10 +82,15 @@ HTML_TEMPLATE = """
     <title>AutoCraft SaaS Onboarding</title>
     <style>
         body { background-color: #121212; color: #ffffff; font-family: Arial, sans-serif; text-align: center; margin: 0; padding: 40px 20px; }
-        .card { background: #1e1e1e; max-width: 500px; margin: 0 auto; padding: 30px; border-radius: 12px; box-shadow: 0 4px 15px rgba(0,0,0,0.5); text-align: left; }
-        textarea, button, select { width: 100%; padding: 12px; margin: 10px 0; border-radius: 6px; border: none; font-size: 15px; box-sizing: border-box; }
+        .card { background: #1e1e1e; max-width: 550px; margin: 0 auto; padding: 30px; border-radius: 12px; box-shadow: 0 4px 15px rgba(0,0,0,0.5); text-align: left; }
+        textarea, button { width: 100%; padding: 12px; margin: 10px 0; border-radius: 6px; border: none; font-size: 15px; box-sizing: border-box; }
         textarea { background: #2a2a2a; color: white; resize: vertical; height: 120px; }
         .status-box { background: #2a2a2a; padding: 15px; border-radius: 6px; margin-bottom: 20px; }
+        .page-item { display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #333; padding: 8px 0; }
+        .page-item:last-child { border-bottom: none; }
+        .toggle-btn { width: auto; padding: 6px 12px; margin: 0; font-size: 12px; font-weight: bold; cursor: pointer; border-radius: 4px; }
+        .btn-on { background-color: #dc3545; color: white; }
+        .btn-off { background-color: #28a745; color: white; }
         h2, p { text-align: center; }
     </style>
 </head>
@@ -96,13 +101,23 @@ HTML_TEMPLATE = """
         
         {% if connected_pages %}
         <div class="status-box">
-            <h4 style="margin: 0 0 10px 0; color: #28a745;">কানেক্টেড পেজসমূহ:</h4>
+            <h4 style="margin: 0 0 10px 0; color: #00ffcc;">কানেক্টেড পেজসমূহ:</h4>
             {% for p in connected_pages %}
-                <p style="text-align: left; margin: 5px 0;"><b>পেজ:</b> {{ p[1] }} | <b>স্ট্যাটাস:</b> {{ 'চালু (ON)' if p[2] == 1 else 'বন্ধ (OFF)' }}</p>
+                <div class="page-item">
+                    <div>
+                        <b>{{ p[1] }}</b><br>
+                        <small style="color: {{ '#28a745' if p[2] == 1 else '#dc3545' }};">
+                            স্ট্যাটাস: {{ 'চালু (ON)' if p[2] == 1 else 'বন্ধ (OFF)' }}
+                        </small>
+                    </div>
+                    <form action="/toggle-bot" method="POST" style="margin: 0;">
+                        <input type="hidden" name="page_id" value="{{ p[0] }}">
+                        <button type="submit" class="toggle-btn {{ 'btn-on' if p[2] == 1 else 'btn-off' }}">
+                            {{ 'বন্ধ করুন' if p[2] == 1 else 'চালু করুন' }}
+                        </button>
+                    </form>
+                </div>
             {% endfor %}
-            <form action="/toggle-bot" method="POST" style="margin-top: 10px;">
-                <button type="submit" style="background-color: #dc3545; color: white; cursor: pointer;">বট অন/অফ টগল করুন</button>
-            </form>
         </div>
         {% endif %}
 
@@ -128,15 +143,17 @@ def dashboard():
 
 @flask_app.route("/toggle-bot", methods=["POST"])
 def toggle_bot():
-    conn = sqlite3.connect("bot_memory.db")
-    cursor = conn.cursor()
-    cursor.execute("SELECT page_id, bot_status FROM clients")
-    row = cursor.fetchone()
-    if row:
-        new_status = 0 if row[1] == 1 else 1
-        cursor.execute("UPDATE clients SET bot_status = ? WHERE page_id = ?", (new_status, row[0]))
-        conn.commit()
-    conn.close()
+    page_id = request.form.get("page_id")
+    if page_id:
+        conn = sqlite3.connect("bot_memory.db")
+        cursor = conn.cursor()
+        cursor.execute("SELECT bot_status FROM clients WHERE page_id = ?", (page_id,))
+        row = cursor.fetchone()
+        if row:
+            new_status = 0 if row[0] == 1 else 1
+            cursor.execute("UPDATE clients SET bot_status = ? WHERE page_id = ?", (new_status, page_id))
+            conn.commit()
+        conn.close()
     return redirect("/")
 
 @flask_app.route("/save-prompt", methods=["POST"])
@@ -181,18 +198,19 @@ def facebook_callback():
     conn = sqlite3.connect("bot_memory.db")
     cursor = conn.cursor()
 
-    for page in pages:
-        page_id = page["id"]
-        page_name = page["name"]
-        page_access_token = page["access_token"]
+    # একাধিক পেজ থাকলে শুধু প্রথম সিলেক্টেড পেজটি সেভ হবে
+    page = pages[0]
+    page_id = page["id"]
+    page_name = page["name"]
+    page_access_token = page["access_token"]
 
-        cursor.execute("""
-            INSERT OR REPLACE INTO clients (page_id, page_access_token, client_name, custom_prompt, bot_status)
-            VALUES (?, ?, ?, ?, 1)
-        """, (page_id, page_access_token, page_name, custom_prompt))
+    cursor.execute("""
+        INSERT OR REPLACE INTO clients (page_id, page_access_token, client_name, custom_prompt, bot_status)
+        VALUES (?, ?, ?, ?, 1)
+    """, (page_id, page_access_token, page_name, custom_prompt))
 
-        sub_url = f"https://graph.facebook.com/v18.0/{page_id}/subscribed_apps?subscribed_fields=messages&access_token={page_access_token}"
-        requests.post(sub_url)
+    sub_url = f"https://graph.facebook.com/v18.0/{page_id}/subscribed_apps?subscribed_fields=messages&access_token={page_access_token}"
+    requests.post(sub_url)
 
     conn.commit()
     conn.close()
@@ -315,5 +333,5 @@ def send_facebook_message(page_id, recipient_id, message_text, page_access_token
     requests.post(url, json=payload, headers=headers)
 
 if __name__ == "__main__":
-    port = int(os.environ.S("PORT", 5000)) if "PORT" in os.environ else 5000
-    flask_app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
+    port = int(os.environ.get("PORT", 5000))
+    flask_app.run(host="0.0.0.0", port=port)
