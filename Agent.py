@@ -10,7 +10,9 @@ VERIFY_TOKEN = os.environ.get("VERIFY_TOKEN", "")
 
 FB_APP_ID = os.environ.get("FB_APP_ID", "")
 FB_APP_SECRET = os.environ.get("FB_APP_SECRET", "")
-BASE_URL = os.environ.get("BASE_URL", "http://localhost:5000")
+
+# Render Live URL
+BASE_URL = os.environ.get("BASE_URL", "https://agent-for-me.onrender.com").rstrip('/')
 
 # --- Database Setup ---
 def init_db():
@@ -298,10 +300,11 @@ def delete_page():
 @flask_app.route("/save-prompt", methods=["POST"])
 def save_prompt():
     session['custom_prompt'] = request.form.get("custom_prompt")
+    redirect_uri = f"{BASE_URL}/auth/facebook/callback"
     fb_login_url = (
         f"https://www.facebook.com/v18.0/dialog/oauth?"
         f"client_id={FB_APP_ID}&"
-        f"redirect_uri={BASE_URL}/auth/facebook/callback&"
+        f"redirect_uri={redirect_uri}&"
         f"scope=pages_messaging,pages_show_list,pages_manage_metadata"
     )
     return redirect(fb_login_url)
@@ -313,12 +316,13 @@ def facebook_callback():
         return "Facebook Auth Failed!", 400
         
     custom_prompt = session.get('custom_prompt', "আপনি এই পেজের প্রফেশনাল এআই অ্যাসিস্ট্যান্ট।")
+    redirect_uri = f"{BASE_URL}/auth/facebook/callback"
 
     # Step 1: Exchange code for Short-Lived User Access Token
     token_url = (
         f"https://graph.facebook.com/v18.0/oauth/access_token?"
         f"client_id={FB_APP_ID}&"
-        f"redirect_uri={BASE_URL}/auth/facebook/callback&"
+        f"redirect_uri={redirect_uri}&"
         f"client_secret={FB_APP_SECRET}&"
         f"code={code}"
     )
@@ -355,12 +359,11 @@ def facebook_callback():
         page_name = page["name"]
         page_access_token = page["access_token"]
 
-        # CRITICAL FIX: Check if page already exists in DB
+        # Check if page already exists in DB
         cursor.execute("SELECT custom_prompt FROM clients WHERE page_id = ?", (page_id,))
         existing = cursor.fetchone()
 
-        # If page already exists, retain its original prompt.
-        # Otherwise, assign the new prompt submitted in session.
+        # Preserve original custom prompt for existing pages
         prompt_to_save = existing[0] if (existing and existing[0]) else custom_prompt
 
         cursor.execute("""
@@ -369,9 +372,9 @@ def facebook_callback():
             ON CONFLICT(page_id) DO UPDATE SET
                 page_access_token = excluded.page_access_token,
                 client_name = excluded.client_name,
-                custom_prompt = ?,
+                custom_prompt = excluded.custom_prompt,
                 bot_status = 1
-        """, (page_id, page_access_token, page_name, prompt_to_save, prompt_to_save))
+        """, (page_id, page_access_token, page_name, prompt_to_save))
 
         # Subscribe each page explicitly to Webhooks
         sub_url = f"https://graph.facebook.com/v18.0/{page_id}/subscribed_apps?subscribed_fields=messages&access_token={page_access_token}"
