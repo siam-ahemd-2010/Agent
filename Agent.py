@@ -180,7 +180,6 @@ CLIENT_CONTROL_TEMPLATE = """
         .dot-active { background: #22c55e; box-shadow: 0 0 12px #22c55e; }
         .dot-inactive { background: #ef4444; box-shadow: 0 0 12px #ef4444; }
 
-        /* Animated Switch */
         .switch-box { margin: 30px 0; }
         .switch {
             position: relative;
@@ -325,27 +324,26 @@ def facebook_callback():
     conn = sqlite3.connect("bot_memory.db")
     cursor = conn.cursor()
 
-    page = pages[0]
-    page_id = page["id"]
-    page_name = page["name"]
-    page_access_token = page["access_token"]
+    for page in pages:
+        page_id = page["id"]
+        page_name = page["name"]
+        page_access_token = page["access_token"]
 
-    cursor.execute("""
-        INSERT OR REPLACE INTO clients (page_id, page_access_token, client_name, custom_prompt, bot_status)
-        VALUES (?, ?, ?, ?, 1)
-    """, (page_id, page_access_token, page_name, custom_prompt))
+        cursor.execute("""
+            INSERT OR REPLACE INTO clients (page_id, page_access_token, client_name, custom_prompt, bot_status)
+            VALUES (?, ?, ?, ?, 1)
+        """, (page_id, page_access_token, page_name, custom_prompt))
 
-    sub_url = f"https://graph.facebook.com/v18.0/{page_id}/subscribed_apps?subscribed_fields=messages&access_token={page_access_token}"
-    requests.post(sub_url)
+        sub_url = f"https://graph.facebook.com/v18.0/{page_id}/subscribed_apps?subscribed_fields=messages&access_token={page_access_token}"
+        requests.post(sub_url)
 
     conn.commit()
     conn.close()
 
     return f"""
     <div style='background:#0f172a; color:white; text-align:center; padding:50px; font-family:Arial;'>
-        <h1 style='color:#22c55e;'>অভিনন্দন! আপনার ফেসবুক পেজ সফলভাবে কানেক্ট হয়েছে।</h1>
-        <p>ক্লায়েন্ট কন্ট্রোল লিংক: <a href='/control?page_id={page_id}' style='color:#38bdf8;'>বট অন/অফ লিংক দেখুন</a></p>
-        <p><a href='/' style='color:#94a3b8;'>এডমিন ড্যাশবোর্ডে ফিরে যান</a></p>
+        <h1 style='color:#22c55e;'>অভিনন্দন! আপনার ফেসবুক পেজ(সমূহ) সফলভাবে কানেক্ট হয়েছে।</h1>
+        <p><a href='/' style='color:#38bdf8;'>এডমিন ড্যাশবোর্ডে ফিরে যান</a></p>
     </div>
     """
 
@@ -411,7 +409,8 @@ def facebook_webhook():
                                         response_format="text"
                                     )
                                 final_input_text = f"[Voice Transcribed]: {transcription}"
-                                os.remove(audio_path)
+                                if os.path.exists(audio_path):
+                                    os.remove(audio_path)
 
                             save_message_to_db(page_id, sender_id, "user", final_input_text)
                             chat_messages.append({"role": "user", "content": final_input_text})
@@ -428,8 +427,9 @@ def facebook_webhook():
 
 def generate_ai_reply(messages, image_url=None):
     try:
-        model_to_use = "qwen/qwen3.8-27b"
+        model_to_use = "llama-3.3-70b-versatile"
         if image_url:
+            model_to_use = "llama-3.2-11b-vision-preview"
             img_response = requests.get(image_url)
             base64_image = base64.b64encode(img_response.content).decode('utf-8')
             messages[-1] = {
