@@ -5,7 +5,7 @@ import requests
 from flask import Flask, request, jsonify, render_template_string, redirect, session
 from groq import Groq
 
-# --- কনফিগারেশন ---
+# --- Configuration ---
 client = Groq(api_key=os.environ.get("GROQ_API_KEY", ""))
 VERIFY_TOKEN = os.environ.get("VERIFY_TOKEN", "")
 
@@ -13,7 +13,7 @@ FB_APP_ID = os.environ.get("FB_APP_ID", "")
 FB_APP_SECRET = os.environ.get("FB_APP_SECRET", "")
 BASE_URL = os.environ.get("BASE_URL", "http://localhost:5000")
 
-# --- ডাটাবেস সেটআপ ---
+# --- Database Setup ---
 def init_db():
     conn = sqlite3.connect("bot_memory.db")
     cursor = conn.cursor()
@@ -68,64 +68,174 @@ def save_message_to_db(page_id, sender_id, role, content):
     conn.commit()
     conn.close()
 
-# Flask অ্যাপ সেটআপ
+# Flask App Setup
 flask_app = Flask(__name__)
 flask_app.secret_key = os.environ.get("FLASK_SECRET_KEY", "super_secret_key_autocraft")
 
-# --- আপডেট করা ড্যাশবোর্ড (আলাদা আলাদা ON/OFF বাটনসহ) ---
-HTML_TEMPLATE = """
+# --- Admin Dashboard Template ---
+ADMIN_TEMPLATE = """
 <!DOCTYPE html>
 <html lang="bn">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>AutoCraft SaaS Onboarding</title>
+    <title>AutoCraft Admin Panel</title>
     <style>
-        body { background-color: #121212; color: #ffffff; font-family: Arial, sans-serif; text-align: center; margin: 0; padding: 40px 20px; }
-        .card { background: #1e1e1e; max-width: 550px; margin: 0 auto; padding: 30px; border-radius: 12px; box-shadow: 0 4px 15px rgba(0,0,0,0.5); text-align: left; }
-        textarea, button { width: 100%; padding: 12px; margin: 10px 0; border-radius: 6px; border: none; font-size: 15px; box-sizing: border-box; }
-        textarea { background: #2a2a2a; color: white; resize: vertical; height: 120px; }
-        .status-box { background: #2a2a2a; padding: 15px; border-radius: 6px; margin-bottom: 20px; }
-        .page-item { display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #333; padding: 8px 0; }
-        .page-item:last-child { border-bottom: none; }
-        .toggle-btn { width: auto; padding: 6px 12px; margin: 0; font-size: 12px; font-weight: bold; cursor: pointer; border-radius: 4px; }
-        .btn-on { background-color: #dc3545; color: white; }
-        .btn-off { background-color: #28a745; color: white; }
+        body { background: #0f172a; color: #f8fafc; font-family: 'Segoe UI', Arial, sans-serif; margin: 0; padding: 40px 20px; }
+        .card { background: #1e293b; max-width: 600px; margin: 0 auto; padding: 30px; border-radius: 16px; box-shadow: 0 10px 25px rgba(0,0,0,0.5); border: 1px solid #334155; }
+        textarea, button { width: 100%; padding: 12px; margin: 10px 0; border-radius: 8px; border: 1px solid #475569; font-size: 15px; box-sizing: border-box; }
+        textarea { background: #0f172a; color: white; resize: vertical; height: 100px; }
+        .page-item { background: #0f172a; padding: 15px; border-radius: 10px; margin-bottom: 12px; border: 1px solid #334155; }
+        .client-link { color: #38bdf8; font-size: 13px; word-break: break-all; background: #1e293b; padding: 8px; border-radius: 6px; display: block; margin-top: 8px; border: 1px dashed #38bdf8; }
         h2, p { text-align: center; }
     </style>
 </head>
 <body>
     <div class="card">
-        <h2>AutoCraft SaaS Bot</h2>
-        <p style="color: #00ffcc; font-size: 14px;">ফেসবুক পেজ অটোমেশন ও এআই কনফিগারেশন</p>
+        <h2>AutoCraft SaaS Bot Admin</h2>
+        <p style="color: #38bdf8; font-size: 14px;">Master Control Panel</p>
         
         {% if connected_pages %}
-        <div class="status-box">
-            <h4 style="margin: 0 0 10px 0; color: #00ffcc;">কানেক্টেড পেজসমূহ:</h4>
+        <div style="margin-bottom: 25px;">
+            <h4 style="color: #38bdf8; margin-bottom: 10px;">কানেক্টেড পেজসমূহ ও ক্লায়েন্ট লিংক:</h4>
             {% for p in connected_pages %}
                 <div class="page-item">
-                    <div>
-                        <b>{{ p[1] }}</b><br>
-                        <small style="color: {{ '#28a745' if p[2] == 1 else '#dc3545' }};">
-                            স্ট্যাটাস: {{ 'চালু (ON)' if p[2] == 1 else 'বন্ধ (OFF)' }}
-                        </small>
-                    </div>
-                    <form action="/toggle-bot" method="POST" style="margin: 0;">
-                        <input type="hidden" name="page_id" value="{{ p[0] }}">
-                        <button type="submit" class="toggle-btn {{ 'btn-on' if p[2] == 1 else 'btn-off' }}">
-                            {{ 'বন্ধ করুন' if p[2] == 1 else 'চালু করুন' }}
-                        </button>
-                    </form>
+                    <b>পেজ নাম: {{ p[1] }}</b> <br>
+                    <small style="color: {{ '#4ade80' if p[2] == 1 else '#f87171' }};">
+                        স্ট্যাটাস: {{ 'অন (ON)' if p[2] == 1 else 'অফ (OFF)' }}
+                    </small>
+                    <span class="client-link">ক্লায়েন্ট লিংক: <b>{{ base_url }}/control?page_id={{ p[0] }}</b></span>
                 </div>
             {% endfor %}
         </div>
         {% endif %}
 
         <form action="/save-prompt" method="POST">
-            <label>বটের জন্য নির্দেশিকা বা System Prompt:</label>
-            <textarea name="custom_prompt" placeholder="যেমন: আপনি ফেশন হাউসের সেলস প্রতিনিধি..." required></textarea>
+            <label>System Prompt (বটের নির্দেশিকা):</label>
+            <textarea name="custom_prompt" placeholder="যেমন: আপনি ফ্যাশন হাউসের সেলস প্রতিনিধি..." required></textarea>
+            <button type="submit" style="background: #2563eb; color: white; font-weight: bold; cursor: pointer;">প্রম্পট সেভ করুন ও ফেসবুক পেজ কানেক্ট করুন</button>
+        </form>
+    </div>
+</body>
+</html>
+"""
+
+# --- Client Single Page Control Template ---
+CLIENT_CONTROL_TEMPLATE = """
+<!DOCTYPE html>
+<html lang="bn">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{ client_name }} - AI Bot Control</title>
+    <style>
+        * { box-sizing: border-box; }
+        body { 
+            background: linear-gradient(135deg, #0f172a 0%, #1e1b4b 100%); 
+            color: #ffffff; 
+            font-family: 'Segoe UI', Arial, sans-serif; 
+            display: flex; 
+            justify-content: center; 
+            align-items: center; 
+            min-height: 100vh; 
+            margin: 0; 
+        }
+        .container {
+            background: rgba(30, 41, 59, 0.7);
+            backdrop-filter: blur(12px);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            padding: 40px 30px;
+            border-radius: 24px;
+            box-shadow: 0 20px 40px rgba(0,0,0,0.4);
+            text-align: center;
+            width: 100%;
+            max-width: 420px;
+        }
+        .page-badge {
+            background: rgba(56, 189, 248, 0.1);
+            color: #38bdf8;
+            padding: 8px 18px;
+            border-radius: 20px;
+            font-size: 15px;
+            font-weight: 600;
+            display: inline-block;
+            margin-bottom: 20px;
+            border: 1px solid rgba(56, 189, 248, 0.2);
+        }
+        .status-indicator {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 10px;
+            margin: 25px 0;
+            font-size: 18px;
+            font-weight: bold;
+        }
+        .dot {
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            display: inline-block;
+        }
+        .dot-active { background: #22c55e; box-shadow: 0 0 12px #22c55e; }
+        .dot-inactive { background: #ef4444; box-shadow: 0 0 12px #ef4444; }
+
+        /* Animated Switch */
+        .switch-box { margin: 30px 0; }
+        .switch {
+            position: relative;
+            display: inline-block;
+            width: 90px;
+            height: 48px;
+        }
+        .switch input { opacity: 0; width: 0; height: 0; }
+        .slider {
+            position: absolute;
+            cursor: pointer;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background-color: #334155;
+            transition: .4s;
+            border-radius: 34px;
+            border: 2px solid #475569;
+        }
+        .slider:before {
+            position: absolute;
+            content: "";
+            height: 38px;
+            width: 38px;
+            left: 3px;
+            bottom: 3px;
+            background-color: white;
+            transition: .4s;
+            border-radius: 50%;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.3);
+        }
+        input:checked + .slider { background: linear-gradient(135deg, #16a34a, #22c55e); border-color: #4ade80; }
+        input:checked + .slider:before { transform: translateX(40px); }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <span class="page-badge">{{ client_name }}</span>
+        <h2 style="margin: 0 0 10px 0;">AI Agent Control</h2>
+        <p style="color: #94a3b8; font-size: 14px; margin: 0;">অটোমেটেড বটের স্ট্যাটাস পরিবর্তন করুন</p>
+
+        <form action="/toggle-client-bot" method="POST">
+            <input type="hidden" name="page_id" value="{{ page_id }}">
             
-            <button type="submit" style="background-color: #1877f2; color: white; font-weight: bold; cursor: pointer;">প্রম্পট সেভ করুন ও ফেসবুক দিয়ে কানেক্ট করুন</button>
+            <div class="status-indicator">
+                <span class="dot {{ 'dot-active' if bot_status == 1 else 'dot-inactive' }}"></span>
+                <span style="color: {{ '#4ade80' if bot_status == 1 else '#f87171' }}">
+                    {{ 'বট বর্তমানে চালু (ACTIVE)' if bot_status == 1 else 'বট বর্তমানে বন্ধ (INACTIVE)' }}
+                </span>
+            </div>
+
+            <div class="switch-box">
+                <label class="switch">
+                    <input type="checkbox" onchange="this.form.submit()" {{ 'checked' if bot_status == 1 else '' }}>
+                    <span class="slider"></span>
+                </label>
+            </div>
         </form>
     </div>
 </body>
@@ -139,10 +249,27 @@ def dashboard():
     cursor.execute("SELECT page_id, client_name, bot_status FROM clients")
     connected_pages = cursor.fetchall()
     conn.close()
-    return render_template_string(HTML_TEMPLATE, connected_pages=connected_pages)
+    return render_template_string(ADMIN_TEMPLATE, connected_pages=connected_pages, base_url=BASE_URL)
 
-@flask_app.route("/toggle-bot", methods=["POST"])
-def toggle_bot():
+@flask_app.route("/control")
+def client_control():
+    page_id = request.args.get("page_id")
+    if not page_id:
+        return "Invalid Request: Page ID missing", 400
+
+    conn = sqlite3.connect("bot_memory.db")
+    cursor = conn.cursor()
+    cursor.execute("SELECT client_name, bot_status FROM clients WHERE page_id = ?", (page_id,))
+    row = cursor.fetchone()
+    conn.close()
+
+    if not row:
+        return "Page not found!", 404
+
+    return render_template_string(CLIENT_CONTROL_TEMPLATE, page_id=page_id, client_name=row[0], bot_status=row[1])
+
+@flask_app.route("/toggle-client-bot", methods=["POST"])
+def toggle_client_bot():
     page_id = request.form.get("page_id")
     if page_id:
         conn = sqlite3.connect("bot_memory.db")
@@ -154,7 +281,7 @@ def toggle_bot():
             cursor.execute("UPDATE clients SET bot_status = ? WHERE page_id = ?", (new_status, page_id))
             conn.commit()
         conn.close()
-    return redirect("/")
+    return redirect(f"/control?page_id={page_id}")
 
 @flask_app.route("/save-prompt", methods=["POST"])
 def save_prompt():
@@ -198,7 +325,6 @@ def facebook_callback():
     conn = sqlite3.connect("bot_memory.db")
     cursor = conn.cursor()
 
-    # একাধিক পেজ থাকলে শুধু প্রথম সিলেক্টেড পেজটি সেভ হবে
     page = pages[0]
     page_id = page["id"]
     page_name = page["name"]
@@ -215,10 +341,11 @@ def facebook_callback():
     conn.commit()
     conn.close()
 
-    return """
-    <div style='background:#121212; color:white; text-align:center; padding:50px; font-family:Arial;'>
-        <h1 style='color:#28a745;'>অভিনন্দন! আপনার ফেসবুক পেজ সফলভাবে কানেক্ট হয়েছে।</h1>
-        <p><a href='/' style='color:#00ffcc;'>ড্যাশবোর্ডে ফিরে যান</a></p>
+    return f"""
+    <div style='background:#0f172a; color:white; text-align:center; padding:50px; font-family:Arial;'>
+        <h1 style='color:#22c55e;'>অভিনন্দন! আপনার ফেসবুক পেজ সফলভাবে কানেক্ট হয়েছে।</h1>
+        <p>ক্লায়েন্ট কন্ট্রোল লিংক: <a href='/control?page_id={page_id}' style='color:#38bdf8;'>বট অন/অফ লিংক দেখুন</a></p>
+        <p><a href='/' style='color:#94a3b8;'>এডমিন ড্যাশবোর্ডে ফিরে যান</a></p>
     </div>
     """
 
