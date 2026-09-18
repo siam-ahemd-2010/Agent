@@ -200,11 +200,13 @@ def delete_page():
 @flask_app.route("/save-prompt", methods=["POST"])
 def save_prompt():
     session['custom_prompt'] = request.form.get("custom_prompt")
+    # auth_type=rerequest forces Facebook dialog to select specific page access
     fb_login_url = (
         f"https://www.facebook.com/v18.0/dialog/oauth?"
         f"client_id={FB_APP_ID}&"
         f"redirect_uri={BASE_URL}/auth/facebook/callback&"
-        f"scope=pages_messaging,pages_show_list,pages_manage_metadata"
+        f"scope=pages_messaging,pages_show_list,pages_manage_metadata&"
+        f"auth_type=rerequest"
     )
     return redirect(fb_login_url)
 
@@ -216,7 +218,7 @@ def facebook_callback():
         
     custom_prompt = session.get('custom_prompt', "আপনি এই পেজের প্রফেশনাল এআই অ্যাসিস্ট্যান্ট।")
 
-    # Step 1: Exchange code for Short-Lived User Access Token
+    # Step 1: Exchange code
     token_url = (
         f"https://graph.facebook.com/v18.0/oauth/access_token?"
         f"client_id={FB_APP_ID}&"
@@ -230,7 +232,7 @@ def facebook_callback():
     if not short_user_token:
         return f"Token Exchange Error: {res}", 400
 
-    # Step 2: Convert Short-Lived User Token to Long-Lived Token
+    # Step 2: Convert to Long-Lived User Token
     long_token_url = (
         f"https://graph.facebook.com/v18.0/oauth/access_token?"
         f"grant_type=fb_exchange_token&"
@@ -241,14 +243,10 @@ def facebook_callback():
     long_res = requests.get(long_token_url).json()
     long_user_token = long_res.get("access_token", short_user_token)
 
-    # Step 3: Fetch ALL Authorized Pages using Pagination
-    pages = []
-    pages_url = f"https://graph.facebook.com/v18.0/me/accounts?access_token={long_user_token}&limit=100"
-    
-    while pages_url:
-        pages_res = requests.get(pages_url).json()
-        pages.extend(pages_res.get("data", []))
-        pages_url = pages_res.get("paging", {}).get("next")
+    # Step 3: Fetch Authorized Pages
+    pages_url = f"https://graph.facebook.com/v18.0/me/accounts?access_token={long_user_token}&limit=250"
+    pages_res = requests.get(pages_url).json()
+    pages = pages_res.get("data", [])
 
     if not pages:
         return "কোনো ফেসবুক পেজ পাওয়া যায়নি!", 400
@@ -261,23 +259,25 @@ def facebook_callback():
         page_name = page["name"]
         page_access_token = page["access_token"]
 
-        # Check existing prompt
+        # Check existing status & prompt
         cursor.execute("SELECT custom_prompt FROM clients WHERE page_id = ?", (page_id,))
         existing = cursor.fetchone()
 
-        # Preserve prompt if page already exists
-        prompt_to_save = existing[0] if (existing and existing[0]) else custom_prompt
+        # Update or Insert cleanly without duplications
+        if existing:
+            cursor.execute("""
+                UPDATE clients SET 
+                    page_access_token = ?,
+                    client_name = ?
+                WHERE page_id = ?
+            """, (page_access_token, page_name, page_id))
+        else:
+            cursor.execute("""
+                INSERT INTO clients (page_id, page_access_token, client_name, custom_prompt, bot_status)
+                VALUES (?, ?, ?, ?, 1)
+            """, (page_id, page_access_token, page_name, custom_prompt))
 
-        cursor.execute("""
-            INSERT INTO clients (page_id, page_access_token, client_name, custom_prompt, bot_status)
-            VALUES (?, ?, ?, ?, 1)
-            ON CONFLICT(page_id) DO UPDATE SET
-                page_access_token = excluded.page_access_token,
-                client_name = excluded.client_name,
-                custom_prompt = ?
-        """, (page_id, page_access_token, page_name, prompt_to_save, prompt_to_save))
-
-        # Subscribe each page to Webhook
+        # Subscribe each active page to Webhook
         sub_url = f"https://graph.facebook.com/v18.0/{page_id}/subscribed_apps?subscribed_fields=messages&access_token={page_access_token}"
         requests.post(sub_url)
 
@@ -358,7 +358,7 @@ def facebook_webhook():
                             ai_reply = generate_ai_reply(chat_messages)
                             save_message_to_db(page_id, sender_id, "assistant", ai_reply)
                             
-                            send_facebook_message(page_id, sender_id, ai_reply, page_access_token)
+                            send_facebook_message(page_id, recipient_id=sender_id, message_text=ai_reply, page_access_token=page_access_token)
                             
         except Exception as e:
             print(f"Error processing webhook: {e}")
