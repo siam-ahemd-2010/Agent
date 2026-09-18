@@ -10,9 +10,7 @@ VERIFY_TOKEN = os.environ.get("VERIFY_TOKEN", "")
 
 FB_APP_ID = os.environ.get("FB_APP_ID", "")
 FB_APP_SECRET = os.environ.get("FB_APP_SECRET", "")
-
-# Render Live URL
-BASE_URL = os.environ.get("BASE_URL", "https://agent-for-me.onrender.com").rstrip('/')
+BASE_URL = os.environ.get("BASE_URL", "http://localhost:5000")
 
 # --- Database Setup ---
 def init_db():
@@ -73,7 +71,7 @@ def save_message_to_db(page_id, sender_id, role, content):
 flask_app = Flask(__name__)
 flask_app.secret_key = os.environ.get("FLASK_SECRET_KEY", "super_secret_key_autocraft")
 
-# --- Admin Dashboard Template ---
+# --- Centralized Admin Dashboard Template ---
 ADMIN_TEMPLATE = """
 <!DOCTYPE html>
 <html lang="bn">
@@ -83,40 +81,59 @@ ADMIN_TEMPLATE = """
     <title>AutoCraft Multi-Page Admin Panel</title>
     <style>
         body { background: #0f172a; color: #f8fafc; font-family: 'Segoe UI', Arial, sans-serif; margin: 0; padding: 40px 20px; }
-        .card { background: #1e293b; max-width: 700px; margin: 0 auto; padding: 30px; border-radius: 16px; box-shadow: 0 10px 25px rgba(0,0,0,0.5); border: 1px solid #334155; }
+        .card { background: #1e293b; max-width: 800px; margin: 0 auto; padding: 30px; border-radius: 16px; box-shadow: 0 10px 25px rgba(0,0,0,0.5); border: 1px solid #334155; }
         textarea, button { width: 100%; padding: 12px; margin: 10px 0; border-radius: 8px; border: 1px solid #475569; font-size: 15px; box-sizing: border-box; }
         textarea { background: #0f172a; color: white; resize: vertical; height: 100px; }
-        .page-item { background: #0f172a; padding: 18px; border-radius: 10px; margin-bottom: 15px; border: 1px solid #334155; display: flex; flex-direction: column; gap: 8px; }
-        .page-header { display: flex; justify-content: space-between; align-items: center; }
-        .delete-btn { background: #ef4444; color: white; border: none; padding: 6px 14px; border-radius: 6px; cursor: pointer; font-weight: bold; width: auto; margin: 0; font-size: 13px; }
+        .page-item { background: #0f172a; padding: 18px; border-radius: 10px; margin-bottom: 15px; border: 1px solid #334155; display: flex; align-items: center; justify-content: space-between; }
+        .page-info { display: flex; flex-direction: column; gap: 4px; }
+        .actions { display: flex; align-items: center; gap: 12px; }
+        .delete-btn { background: #ef4444; color: white; border: none; padding: 8px 14px; border-radius: 6px; cursor: pointer; font-weight: bold; width: auto; margin: 0; font-size: 13px; }
         .delete-btn:hover { background: #dc2626; }
-        .client-link { color: #38bdf8; font-size: 13px; word-break: break-all; background: #1e293b; padding: 8px; border-radius: 6px; border: 1px dashed #38bdf8; margin-top: 5px; }
+        
+        /* Toggle Switch */
+        .switch { position: relative; display: inline-block; width: 60px; height: 32px; }
+        .switch input { opacity: 0; width: 0; height: 0; }
+        .slider { position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0; background-color: #334155; transition: .4s; border-radius: 34px; border: 1px solid #475569; }
+        .slider:before { position: absolute; content: ""; height: 24px; width: 24px; left: 3px; bottom: 3px; background-color: white; transition: .4s; border-radius: 50%; }
+        input:checked + .slider { background: #22c55e; border-color: #4ade80; }
+        input:checked + .slider:before { transform: translateX(28px); }
         h2, p { text-align: center; }
     </style>
 </head>
 <body>
     <div class="card">
-        <h2>AutoCraft SaaS Bot Admin</h2>
-        <p style="color: #38bdf8; font-size: 14px;">Multi-Page SaaS Management Panel</p>
+        <h2>AutoCraft SaaS Central Admin Panel</h2>
+        <p style="color: #38bdf8; font-size: 14px;">সকল পেজ এবং বটের কন্ট্রোল আপনার হাতে</p>
         
         {% if connected_pages %}
         <div style="margin-bottom: 25px;">
-            <h4 style="color: #38bdf8; margin-bottom: 12px;">কানেক্টেড পেজসমূহ:</h4>
+            <h3 style="color: #38bdf8; margin-bottom: 15px;">কানেক্টেড পেজসমূহ:</h3>
             {% for p in connected_pages %}
                 <div class="page-item">
-                    <div class="page-header">
-                        <div>
-                            <b style="font-size: 16px;">{{ p[1] }}</b> <small style="color: #94a3b8;">(ID: {{ p[0] }})</small><br>
-                            <small style="color: {{ '#4ade80' if p[2] == 1 else '#f87171' }}; font-weight: bold;">
-                                স্ট্যাটাস: {{ 'অন (ACTIVE)' if p[2] == 1 else 'অফ (INACTIVE)' }}
-                            </small>
-                        </div>
-                        <form action="/delete-page" method="POST" onsubmit="return confirm('আপনি কি নিশ্চিত যে এই পেজটি মুছে ফেলতে চান?');" style="margin: 0;">
+                    <div class="page-info">
+                        <b style="font-size: 16px; color: #f8fafc;">{{ p[1] }}</b>
+                        <small style="color: #94a3b8;">Page ID: {{ p[0] }}</small>
+                        <small style="color: {{ '#4ade80' if p[2] == 1 else '#f87171' }}; font-weight: bold;">
+                            স্ট্যাটাস: {{ 'ACTIVE (চালু)' if p[2] == 1 else 'INACTIVE (বন্ধ)' }}
+                        </small>
+                    </div>
+
+                    <div class="actions">
+                        <!-- Toggle Form -->
+                        <form action="/toggle-page" method="POST" style="margin:0;">
                             <input type="hidden" name="page_id" value="{{ p[0] }}">
-                            <button type="submit" class="delete-btn">ডিলিট করুন</button>
+                            <label class="switch" title="অন/অফ করুন">
+                                <input type="checkbox" onchange="this.form.submit()" {{ 'checked' if p[2] == 1 else '' }}>
+                                <span class="slider"></span>
+                            </label>
+                        </form>
+
+                        <!-- Delete Form -->
+                        <form action="/delete-page" method="POST" onsubmit="return confirm('আপনি কি নিশ্চিত যে এই পেজটি মুছে ফেলতে চান?');" style="margin:0;">
+                            <input type="hidden" name="page_id" value="{{ p[0] }}">
+                            <button type="submit" class="delete-btn">ডিলিট</button>
                         </form>
                     </div>
-                    <div class="client-link">ক্লায়েন্ট কন্ট্রোল লিংক: <b>{{ base_url }}/control?page_id={{ p[0] }}</b></div>
                 </div>
             {% endfor %}
         </div>
@@ -136,103 +153,6 @@ ADMIN_TEMPLATE = """
 </html>
 """
 
-# --- Client Single Page Control Template ---
-CLIENT_CONTROL_TEMPLATE = """
-<!DOCTYPE html>
-<html lang="bn">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>{{ client_name }} - Bot Control</title>
-    <style>
-        * { box-sizing: border-box; }
-        body { 
-            background: linear-gradient(135deg, #0f172a 0%, #1e1b4b 100%); 
-            color: #ffffff; 
-            font-family: 'Segoe UI', Arial, sans-serif; 
-            display: flex; 
-            justify-content: center; 
-            align-items: center; 
-            min-height: 100vh; 
-            margin: 0; 
-        }
-        .container {
-            background: rgba(30, 41, 59, 0.7);
-            backdrop-filter: blur(12px);
-            border: 1px solid rgba(255, 255, 255, 0.1);
-            padding: 40px 30px;
-            border-radius: 24px;
-            box-shadow: 0 20px 40px rgba(0,0,0,0.4);
-            text-align: center;
-            width: 100%;
-            max-width: 420px;
-        }
-        .page-badge {
-            background: rgba(56, 189, 248, 0.1);
-            color: #38bdf8;
-            padding: 8px 18px;
-            border-radius: 20px;
-            font-size: 15px;
-            font-weight: 600;
-            display: inline-block;
-            margin-bottom: 20px;
-            border: 1px solid rgba(56, 189, 248, 0.2);
-        }
-        .status-indicator {
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            gap: 10px;
-            margin: 25px 0;
-            font-size: 18px;
-            font-weight: bold;
-        }
-        .dot { width: 12px; height: 12px; border-radius: 50%; display: inline-block; }
-        .dot-active { background: #22c55e; box-shadow: 0 0 12px #22c55e; }
-        .dot-inactive { background: #ef4444; box-shadow: 0 0 12px #ef4444; }
-
-        .switch { position: relative; display: inline-block; width: 90px; height: 48px; }
-        .switch input { opacity: 0; width: 0; height: 0; }
-        .slider {
-            position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0;
-            background-color: #334155; transition: .4s; border-radius: 34px; border: 2px solid #475569;
-        }
-        .slider:before {
-            position: absolute; content: ""; height: 38px; width: 38px; left: 3px; bottom: 3px;
-            background-color: white; transition: .4s; border-radius: 50%; box-shadow: 0 2px 5px rgba(0,0,0,0.3);
-        }
-        input:checked + .slider { background: linear-gradient(135deg, #16a34a, #22c55e); border-color: #4ade80; }
-        input:checked + .slider:before { transform: translateX(40px); }
-    </style>
-</head>
-<body>
-    <div class="container">
-        <span class="page-badge">{{ client_name }}</span>
-        <h2 style="margin: 0 0 10px 0;">AI Agent Control</h2>
-        <p style="color: #94a3b8; font-size: 14px; margin: 0;">অটোমেটেড বটের স্ট্যাটাস অন/অফ করুন</p>
-
-        <form action="/toggle-client-bot" method="POST">
-            <input type="hidden" name="page_id" value="{{ page_id }}">
-            
-            <div class="status-indicator">
-                <span class="dot {{ 'dot-active' if bot_status == 1 else 'dot-inactive' }}"></span>
-                <span style="color: {{ '#4ade80' if bot_status == 1 else '#f87171' }}">
-                    {{ 'বট চালু (ACTIVE)' if bot_status == 1 else 'বট বন্ধ (INACTIVE)' }}
-                </span>
-            </div>
-
-            <div style="margin: 30px 0;">
-                <label class="switch">
-                    <input type="checkbox" onchange="this.form.submit()" {{ 'checked' if bot_status == 1 else '' }}>
-                    <span class="slider"></span>
-                </label>
-            </div>
-        </form>
-    </div>
-</body>
-</html>
-"""
-
 @flask_app.route("/")
 def dashboard():
     conn = sqlite3.connect("bot_memory.db")
@@ -240,27 +160,10 @@ def dashboard():
     cursor.execute("SELECT page_id, client_name, bot_status FROM clients")
     connected_pages = cursor.fetchall()
     conn.close()
-    return render_template_string(ADMIN_TEMPLATE, connected_pages=connected_pages, base_url=BASE_URL)
+    return render_template_string(ADMIN_TEMPLATE, connected_pages=connected_pages)
 
-@flask_app.route("/control")
-def client_control():
-    page_id = request.args.get("page_id")
-    if not page_id:
-        return "Invalid Request: Page ID missing", 400
-
-    conn = sqlite3.connect("bot_memory.db")
-    cursor = conn.cursor()
-    cursor.execute("SELECT client_name, bot_status FROM clients WHERE page_id = ?", (page_id,))
-    row = cursor.fetchone()
-    conn.close()
-
-    if not row:
-        return "Page not found in database!", 404
-
-    return render_template_string(CLIENT_CONTROL_TEMPLATE, page_id=page_id, client_name=row[0], bot_status=row[1])
-
-@flask_app.route("/toggle-client-bot", methods=["POST"])
-def toggle_client_bot():
+@flask_app.route("/toggle-page", methods=["POST"])
+def toggle_page():
     page_id = request.form.get("page_id")
     if page_id:
         conn = sqlite3.connect("bot_memory.db")
@@ -272,7 +175,7 @@ def toggle_client_bot():
             cursor.execute("UPDATE clients SET bot_status = ? WHERE page_id = ?", (new_status, page_id))
             conn.commit()
         conn.close()
-    return redirect(f"/control?page_id={page_id}")
+    return redirect("/")
 
 @flask_app.route("/delete-page", methods=["POST"])
 def delete_page():
@@ -300,11 +203,10 @@ def delete_page():
 @flask_app.route("/save-prompt", methods=["POST"])
 def save_prompt():
     session['custom_prompt'] = request.form.get("custom_prompt")
-    redirect_uri = f"{BASE_URL}/auth/facebook/callback"
     fb_login_url = (
         f"https://www.facebook.com/v18.0/dialog/oauth?"
         f"client_id={FB_APP_ID}&"
-        f"redirect_uri={redirect_uri}&"
+        f"redirect_uri={BASE_URL}/auth/facebook/callback&"
         f"scope=pages_messaging,pages_show_list,pages_manage_metadata"
     )
     return redirect(fb_login_url)
@@ -316,13 +218,12 @@ def facebook_callback():
         return "Facebook Auth Failed!", 400
         
     custom_prompt = session.get('custom_prompt', "আপনি এই পেজের প্রফেশনাল এআই অ্যাসিস্ট্যান্ট।")
-    redirect_uri = f"{BASE_URL}/auth/facebook/callback"
 
-    # Step 1: Exchange code for Short-Lived User Access Token
+    # Step 1: Exchange code for Short-Lived Token
     token_url = (
         f"https://graph.facebook.com/v18.0/oauth/access_token?"
         f"client_id={FB_APP_ID}&"
-        f"redirect_uri={redirect_uri}&"
+        f"redirect_uri={BASE_URL}/auth/facebook/callback&"
         f"client_secret={FB_APP_SECRET}&"
         f"code={code}"
     )
@@ -332,7 +233,7 @@ def facebook_callback():
     if not short_user_token:
         return f"Token Exchange Error: {res}", 400
 
-    # Step 2: Convert Short-Lived User Token to Long-Lived Token
+    # Step 2: Exchange for Long-Lived User Token
     long_token_url = (
         f"https://graph.facebook.com/v18.0/oauth/access_token?"
         f"grant_type=fb_exchange_token&"
@@ -343,7 +244,7 @@ def facebook_callback():
     long_res = requests.get(long_token_url).json()
     long_user_token = long_res.get("access_token", short_user_token)
 
-    # Step 3: Get Page Access Tokens using Long-Lived User Token
+    # Step 3: Fetch all Authorized Page Access Tokens
     pages_url = f"https://graph.facebook.com/v18.0/me/accounts?access_token={long_user_token}"
     pages_res = requests.get(pages_url).json()
     
@@ -363,8 +264,8 @@ def facebook_callback():
         cursor.execute("SELECT custom_prompt FROM clients WHERE page_id = ?", (page_id,))
         existing = cursor.fetchone()
 
-        # Preserve original custom prompt for existing pages
-        prompt_to_save = existing[0] if (existing and existing[0]) else custom_prompt
+        # If already exists, do NOT overwrite its prompt with new session prompt
+        prompt_to_save = existing[0] if existing else custom_prompt
 
         cursor.execute("""
             INSERT INTO clients (page_id, page_access_token, client_name, custom_prompt, bot_status)
@@ -372,25 +273,19 @@ def facebook_callback():
             ON CONFLICT(page_id) DO UPDATE SET
                 page_access_token = excluded.page_access_token,
                 client_name = excluded.client_name,
-                custom_prompt = excluded.custom_prompt,
-                bot_status = 1
-        """, (page_id, page_access_token, page_name, prompt_to_save))
+                custom_prompt = ?
+        """, (page_id, page_access_token, page_name, prompt_to_save, prompt_to_save))
 
-        # Subscribe each page explicitly to Webhooks
+        # Explicitly subscribe webhook for each page
         sub_url = f"https://graph.facebook.com/v18.0/{page_id}/subscribed_apps?subscribed_fields=messages&access_token={page_access_token}"
         requests.post(sub_url)
 
     conn.commit()
     conn.close()
 
-    return f"""
-    <div style='background:#0f172a; color:white; text-align:center; padding:50px; font-family:Arial;'>
-        <h1 style='color:#22c55e;'>অভিনন্দন! পেজটি সফলভাবে কানেক্ট করা হয়েছে।</h1>
-        <p><a href='/' style='color:#38bdf8; font-weight:bold;'>এডমিন ড্যাশবোর্ডে ফিরে যান</a></p>
-    </div>
-    """
+    return redirect("/")
 
-# --- ফেসবুক ওয়েব হুক রাউট ---
+# --- Facebook Webhook Route ---
 @flask_app.route("/webhook", methods=["GET", "POST"])
 def facebook_webhook():
     if request.method == "GET":
@@ -414,6 +309,7 @@ def facebook_webhook():
                     
                     page_access_token, custom_prompt, bot_is_running = get_client_details(page_id)
                     
+                    # If page token missing OR bot toggled OFF, skip processing
                     if not page_access_token or not bot_is_running or not custom_prompt:
                         continue
 
@@ -471,10 +367,8 @@ def facebook_webhook():
 
 def generate_ai_reply(messages):
     try:
-        model_to_use = "qwen/qwen3.8-27b"
-
         completion = client.chat.completions.create(
-            model=model_to_use,
+            model="qwen/qwen3.8-27b",
             messages=messages,
             temperature=0.7,
             max_tokens=300,
