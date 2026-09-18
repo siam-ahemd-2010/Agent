@@ -1,6 +1,5 @@
 import os
 import sqlite3
-import base64
 import requests
 from flask import Flask, request, jsonify, render_template_string, redirect, session
 from groq import Groq
@@ -72,46 +71,61 @@ def save_message_to_db(page_id, sender_id, role, content):
 flask_app = Flask(__name__)
 flask_app.secret_key = os.environ.get("FLASK_SECRET_KEY", "super_secret_key_autocraft")
 
-# --- Admin Dashboard Template ---
+# --- Admin Dashboard Template (With Delete Button) ---
 ADMIN_TEMPLATE = """
 <!DOCTYPE html>
 <html lang="bn">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>AutoCraft Admin Panel</title>
+    <title>AutoCraft Multi-Page Admin Panel</title>
     <style>
         body { background: #0f172a; color: #f8fafc; font-family: 'Segoe UI', Arial, sans-serif; margin: 0; padding: 40px 20px; }
-        .card { background: #1e293b; max-width: 650px; margin: 0 auto; padding: 30px; border-radius: 16px; box-shadow: 0 10px 25px rgba(0,0,0,0.5); border: 1px solid #334155; }
+        .card { background: #1e293b; max-width: 700px; margin: 0 auto; padding: 30px; border-radius: 16px; box-shadow: 0 10px 25px rgba(0,0,0,0.5); border: 1px solid #334155; }
         textarea, button { width: 100%; padding: 12px; margin: 10px 0; border-radius: 8px; border: 1px solid #475569; font-size: 15px; box-sizing: border-box; }
         textarea { background: #0f172a; color: white; resize: vertical; height: 100px; }
-        .page-item { background: #0f172a; padding: 15px; border-radius: 10px; margin-bottom: 12px; border: 1px solid #334155; }
-        .client-link { color: #38bdf8; font-size: 13px; word-break: break-all; background: #1e293b; padding: 8px; border-radius: 6px; display: block; margin-top: 8px; border: 1px dashed #38bdf8; }
+        .page-item { background: #0f172a; padding: 18px; border-radius: 10px; margin-bottom: 15px; border: 1px solid #334155; display: flex; flex-direction: column; gap: 8px; }
+        .page-header { display: flex; justify-content: space-between; align-items: center; }
+        .delete-btn { background: #ef4444; color: white; border: none; padding: 6px 14px; border-radius: 6px; cursor: pointer; font-weight: bold; width: auto; margin: 0; font-size: 13px; }
+        .delete-btn:hover { background: #dc2626; }
+        .client-link { color: #38bdf8; font-size: 13px; word-break: break-all; background: #1e293b; padding: 8px; border-radius: 6px; border: 1px dashed #38bdf8; margin-top: 5px; }
         h2, p { text-align: center; }
     </style>
 </head>
 <body>
     <div class="card">
         <h2>AutoCraft SaaS Bot Admin</h2>
-        <p style="color: #38bdf8; font-size: 14px;">Multi-Page Management Panel</p>
+        <p style="color: #38bdf8; font-size: 14px;">Multi-Page SaaS Management Panel</p>
         
         {% if connected_pages %}
         <div style="margin-bottom: 25px;">
-            <h4 style="color: #38bdf8; margin-bottom: 10px;">কানেক্টেড পেজসমূহ:</h4>
+            <h4 style="color: #38bdf8; margin-bottom: 12px;">কানেক্টেড পেজসমূহ:</h4>
             {% for p in connected_pages %}
                 <div class="page-item">
-                    <b>পেজ নাম: {{ p[1] }}</b> (ID: {{ p[0] }})<br>
-                    <small style="color: {{ '#4ade80' if p[2] == 1 else '#f87171' }};">
-                        স্ট্যাটাস: {{ 'অন (ACTIVE)' if p[2] == 1 else 'অফ (INACTIVE)' }}
-                    </small>
-                    <span class="client-link">ক্লায়েন্ট কন্ট্রোল লিংক: <b>{{ base_url }}/control?page_id={{ p[0] }}</b></span>
+                    <div class="page-header">
+                        <div>
+                            <b style="font-size: 16px;">{{ p[1] }}</b> <small style="color: #94a3b8;">(ID: {{ p[0] }})</small><br>
+                            <small style="color: {{ '#4ade80' if p[2] == 1 else '#f87171' }}; font-weight: bold;">
+                                স্ট্যাটাস: {{ 'অন (ACTIVE)' if p[2] == 1 else 'অফ (INACTIVE)' }}
+                            </small>
+                        </div>
+                        <form action="/delete-page" method="POST" onsubmit="return confirm('আপনি কি নিশ্চিত যে এই পেজটি মুছে ফেলতে চান?');" style="margin: 0;">
+                            <input type="hidden" name="page_id" value="{{ p[0] }}">
+                            <button type="submit" class="delete-btn">ডিলিট করুন</button>
+                        </form>
+                    </div>
+                    <div class="client-link">ক্লায়েন্ট কন্ট্রোল লিংক: <b>{{ base_url }}/control?page_id={{ p[0] }}</b></div>
                 </div>
             {% endfor %}
         </div>
+        {% else %}
+        <p style="color: #94a3b8; font-size: 14px;">এখনো কোনো পেজ যুক্ত করা হয়নি।</p>
         {% endif %}
 
+        <hr style="border-color: #334155; margin: 25px 0;">
+
         <form action="/save-prompt" method="POST">
-            <label>নতুন পেজের জন্য System Prompt (বটের নির্দেশিকা):</label>
+            <label style="font-weight: bold;">নতুন পেজের জন্য System Prompt (বটের নির্দেশিকা):</label>
             <textarea name="custom_prompt" placeholder="যেমন: আপনি ফ্যাশন হাউসের সেলস প্রতিনিধি..." required></textarea>
             <button type="submit" style="background: #2563eb; color: white; font-weight: bold; cursor: pointer;">নতুন ফেসবুক পেজ কানেক্ট করুন</button>
         </form>
@@ -120,7 +134,7 @@ ADMIN_TEMPLATE = """
 </html>
 """
 
-# --- Client Control Template ---
+# --- Client Single Page Control Template ---
 CLIENT_CONTROL_TEMPLATE = """
 <!DOCTYPE html>
 <html lang="bn">
@@ -201,7 +215,7 @@ CLIENT_CONTROL_TEMPLATE = """
             <div class="status-indicator">
                 <span class="dot {{ 'dot-active' if bot_status == 1 else 'dot-inactive' }}"></span>
                 <span style="color: {{ '#4ade80' if bot_status == 1 else '#f87171' }}">
-                    {{ 'বট চালু (ACTIVE)' if bot_status == 1 else 'বট বন্ধ (INACTIVE)' }}
+                    {{ 'বট चालू (ACTIVE)' if bot_status == 1 else 'বট বন্ধ (INACTIVE)' }}
                 </span>
             </div>
 
@@ -258,6 +272,31 @@ def toggle_client_bot():
         conn.close()
     return redirect(f"/control?page_id={page_id}")
 
+@flask_app.route("/delete-page", methods=["POST"])
+def delete_page():
+    page_id = request.form.get("page_id")
+    if page_id:
+        conn = sqlite3.connect("bot_memory.db")
+        cursor = conn.cursor()
+        cursor.execute("SELECT page_access_token FROM clients WHERE page_id = ?", (page_id,))
+        row = cursor.fetchone()
+        
+        if row and row[0]:
+            # Facebook Webhook Unsubscribe
+            try:
+                unsub_url = f"https://graph.facebook.com/v18.0/{page_id}/subscribed_apps?access_token={row[0]}"
+                requests.delete(unsub_url)
+            except Exception as e:
+                print(f"Unsubscribe error: {e}")
+
+        # Remove page and history from DB
+        cursor.execute("DELETE FROM clients WHERE page_id = ?", (page_id,))
+        cursor.execute("DELETE FROM chat_history WHERE page_id = ?", (page_id,))
+        conn.commit()
+        conn.close()
+        
+    return redirect("/")
+
 @flask_app.route("/save-prompt", methods=["POST"])
 def save_prompt():
     session['custom_prompt'] = request.form.get("custom_prompt")
@@ -277,7 +316,7 @@ def facebook_callback():
         
     custom_prompt = session.get('custom_prompt', "আপনি এই পেজের প্রফেশনাল এআই অ্যাসিস্ট্যান্ট।")
 
-    # Step 1: Exchange code for short-lived User Access Token
+    # Step 1: Exchange code for Short-Lived User Access Token
     token_url = (
         f"https://graph.facebook.com/v18.0/oauth/access_token?"
         f"client_id={FB_APP_ID}&"
@@ -286,13 +325,24 @@ def facebook_callback():
         f"code={code}"
     )
     res = requests.get(token_url).json()
-    user_access_token = res.get("access_token")
+    short_user_token = res.get("access_token")
 
-    if not user_access_token:
-        return f"Token Error: {res}", 400
+    if not short_user_token:
+        return f"Token Exchange Error: {res}", 400
 
-    # Step 2: Get user pages and page access tokens
-    pages_url = f"https://graph.facebook.com/v18.0/me/accounts?access_token={user_access_token}"
+    # Step 2: Convert Short-Lived User Token to Long-Lived Token (Never Expire easily)
+    long_token_url = (
+        f"https://graph.facebook.com/v18.0/oauth/access_token?"
+        f"grant_type=fb_exchange_token&"
+        f"client_id={FB_APP_ID}&"
+        f"client_secret={FB_APP_SECRET}&"
+        f"fb_exchange_token={short_user_token}"
+    )
+    long_res = requests.get(long_token_url).json()
+    long_user_token = long_res.get("access_token", short_user_token)
+
+    # Step 3: Get Page Access Tokens using Long-Lived User Token
+    pages_url = f"https://graph.facebook.com/v18.0/me/accounts?access_token={long_user_token}"
     pages_res = requests.get(pages_url).json()
     
     pages = pages_res.get("data", [])
@@ -305,27 +355,20 @@ def facebook_callback():
     for page in pages:
         page_id = page["id"]
         page_name = page["name"]
-        page_access_token = page["access_token"]
+        page_access_token = page["access_token"]  # This token is now long-lived
 
-        # Check if page already exists so we don't overwrite prompt unintentionally
-        cursor.execute("SELECT custom_prompt FROM clients WHERE page_id = ?", (page_id,))
-        existing = cursor.fetchone()
-
-        prompt_to_save = custom_prompt
-        if existing and existing[0]:
-            # Retain old prompt if already connected earlier
-            prompt_to_save = existing[0]
-
+        # Store in DB cleanly
         cursor.execute("""
             INSERT INTO clients (page_id, page_access_token, client_name, custom_prompt, bot_status)
             VALUES (?, ?, ?, ?, 1)
             ON CONFLICT(page_id) DO UPDATE SET
                 page_access_token = excluded.page_access_token,
                 client_name = excluded.client_name,
+                custom_prompt = excluded.custom_prompt,
                 bot_status = 1
-        """, (page_id, page_access_token, page_name, prompt_to_save))
+        """, (page_id, page_access_token, page_name, custom_prompt))
 
-        # Subscribe this specific page to webhooks using its own Access Token
+        # Subscribe this page explicitly to Webhook
         sub_url = f"https://graph.facebook.com/v18.0/{page_id}/subscribed_apps?subscribed_fields=messages&access_token={page_access_token}"
         requests.post(sub_url)
 
@@ -334,8 +377,8 @@ def facebook_callback():
 
     return f"""
     <div style='background:#0f172a; color:white; text-align:center; padding:50px; font-family:Arial;'>
-        <h1 style='color:#22c55e;'>অভিনন্দন! পেজটি সফলভাবে কানেক্ট হয়েছে।</h1>
-        <p><a href='/' style='color:#38bdf8;'>এডমিন ড্যাশবোর্ডে ফিরে যান</a></p>
+        <h1 style='color:#22c55e;'>অভিনন্দন! পেজটি সফলভাবে কানেক্ট করা হয়েছে।</h1>
+        <p><a href='/' style='color:#38bdf8; font-weight:bold;'>এডমিন ড্যাশবোর্ডে ফিরে যান</a></p>
     </div>
     """
 
@@ -370,7 +413,7 @@ def facebook_webhook():
                     for messaging_event in entry.get("messaging", []):
                         sender_id = messaging_event.get("sender", {}).get("id")
                         
-                        # Prevent bot from replying to itself
+                        # Prevent bot from replying to its own message
                         if sender_id == page_id:
                             continue
 
