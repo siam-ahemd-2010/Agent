@@ -78,7 +78,7 @@ ADMIN_TEMPLATE = """
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>AutoCraft Multi-Page Admin Panel</title>
+    <title>AutoCraft SaaS Central Admin Panel</title>
     <style>
         body { background: #0f172a; color: #f8fafc; font-family: 'Segoe UI', Arial, sans-serif; margin: 0; padding: 40px 20px; }
         .card { background: #1e293b; max-width: 800px; margin: 0 auto; padding: 30px; border-radius: 16px; box-shadow: 0 10px 25px rgba(0,0,0,0.5); border: 1px solid #334155; }
@@ -90,7 +90,6 @@ ADMIN_TEMPLATE = """
         .delete-btn { background: #ef4444; color: white; border: none; padding: 8px 14px; border-radius: 6px; cursor: pointer; font-weight: bold; width: auto; margin: 0; font-size: 13px; }
         .delete-btn:hover { background: #dc2626; }
         
-        /* Toggle Switch */
         .switch { position: relative; display: inline-block; width: 60px; height: 32px; }
         .switch input { opacity: 0; width: 0; height: 0; }
         .slider { position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0; background-color: #334155; transition: .4s; border-radius: 34px; border: 1px solid #475569; }
@@ -119,7 +118,6 @@ ADMIN_TEMPLATE = """
                     </div>
 
                     <div class="actions">
-                        <!-- Toggle Form -->
                         <form action="/toggle-page" method="POST" style="margin:0;">
                             <input type="hidden" name="page_id" value="{{ p[0] }}">
                             <label class="switch" title="অন/অফ করুন">
@@ -128,7 +126,6 @@ ADMIN_TEMPLATE = """
                             </label>
                         </form>
 
-                        <!-- Delete Form -->
                         <form action="/delete-page" method="POST" onsubmit="return confirm('আপনি কি নিশ্চিত যে এই পেজটি মুছে ফেলতে চান?');" style="margin:0;">
                             <input type="hidden" name="page_id" value="{{ p[0] }}">
                             <button type="submit" class="delete-btn">ডিলিট</button>
@@ -219,7 +216,7 @@ def facebook_callback():
         
     custom_prompt = session.get('custom_prompt', "আপনি এই পেজের প্রফেশনাল এআই অ্যাসিস্ট্যান্ট।")
 
-    # Step 1: Exchange code for Short-Lived Token
+    # Step 1: Exchange code for Short-Lived User Access Token
     token_url = (
         f"https://graph.facebook.com/v18.0/oauth/access_token?"
         f"client_id={FB_APP_ID}&"
@@ -233,7 +230,7 @@ def facebook_callback():
     if not short_user_token:
         return f"Token Exchange Error: {res}", 400
 
-    # Step 2: Exchange for Long-Lived User Token
+    # Step 2: Convert Short-Lived User Token to Long-Lived Token
     long_token_url = (
         f"https://graph.facebook.com/v18.0/oauth/access_token?"
         f"grant_type=fb_exchange_token&"
@@ -244,11 +241,15 @@ def facebook_callback():
     long_res = requests.get(long_token_url).json()
     long_user_token = long_res.get("access_token", short_user_token)
 
-    # Step 3: Fetch all Authorized Page Access Tokens
-    pages_url = f"https://graph.facebook.com/v18.0/me/accounts?access_token={long_user_token}"
-    pages_res = requests.get(pages_url).json()
+    # Step 3: Fetch ALL Authorized Pages using Pagination
+    pages = []
+    pages_url = f"https://graph.facebook.com/v18.0/me/accounts?access_token={long_user_token}&limit=100"
     
-    pages = pages_res.get("data", [])
+    while pages_url:
+        pages_res = requests.get(pages_url).json()
+        pages.extend(pages_res.get("data", []))
+        pages_url = pages_res.get("paging", {}).get("next")
+
     if not pages:
         return "কোনো ফেসবুক পেজ পাওয়া যায়নি!", 400
 
@@ -260,12 +261,12 @@ def facebook_callback():
         page_name = page["name"]
         page_access_token = page["access_token"]
 
-        # Check if page already exists in DB
+        # Check existing prompt
         cursor.execute("SELECT custom_prompt FROM clients WHERE page_id = ?", (page_id,))
         existing = cursor.fetchone()
 
-        # If already exists, do NOT overwrite its prompt with new session prompt
-        prompt_to_save = existing[0] if existing else custom_prompt
+        # Preserve prompt if page already exists
+        prompt_to_save = existing[0] if (existing and existing[0]) else custom_prompt
 
         cursor.execute("""
             INSERT INTO clients (page_id, page_access_token, client_name, custom_prompt, bot_status)
@@ -276,7 +277,7 @@ def facebook_callback():
                 custom_prompt = ?
         """, (page_id, page_access_token, page_name, prompt_to_save, prompt_to_save))
 
-        # Explicitly subscribe webhook for each page
+        # Subscribe each page to Webhook
         sub_url = f"https://graph.facebook.com/v18.0/{page_id}/subscribed_apps?subscribed_fields=messages&access_token={page_access_token}"
         requests.post(sub_url)
 
@@ -309,7 +310,6 @@ def facebook_webhook():
                     
                     page_access_token, custom_prompt, bot_is_running = get_client_details(page_id)
                     
-                    # If page token missing OR bot toggled OFF, skip processing
                     if not page_access_token or not bot_is_running or not custom_prompt:
                         continue
 
