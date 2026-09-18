@@ -71,7 +71,7 @@ def save_message_to_db(page_id, sender_id, role, content):
 flask_app = Flask(__name__)
 flask_app.secret_key = os.environ.get("FLASK_SECRET_KEY", "super_secret_key_autocraft")
 
-# --- Admin Dashboard Template (With Delete Button) ---
+# --- Admin Dashboard Template ---
 ADMIN_TEMPLATE = """
 <!DOCTYPE html>
 <html lang="bn">
@@ -215,7 +215,7 @@ CLIENT_CONTROL_TEMPLATE = """
             <div class="status-indicator">
                 <span class="dot {{ 'dot-active' if bot_status == 1 else 'dot-inactive' }}"></span>
                 <span style="color: {{ '#4ade80' if bot_status == 1 else '#f87171' }}">
-                    {{ 'বট चालू (ACTIVE)' if bot_status == 1 else 'বট বন্ধ (INACTIVE)' }}
+                    {{ 'বট চালু (ACTIVE)' if bot_status == 1 else 'বট বন্ধ (INACTIVE)' }}
                 </span>
             </div>
 
@@ -282,14 +282,12 @@ def delete_page():
         row = cursor.fetchone()
         
         if row and row[0]:
-            # Facebook Webhook Unsubscribe
             try:
                 unsub_url = f"https://graph.facebook.com/v18.0/{page_id}/subscribed_apps?access_token={row[0]}"
                 requests.delete(unsub_url)
             except Exception as e:
                 print(f"Unsubscribe error: {e}")
 
-        # Remove page and history from DB
         cursor.execute("DELETE FROM clients WHERE page_id = ?", (page_id,))
         cursor.execute("DELETE FROM chat_history WHERE page_id = ?", (page_id,))
         conn.commit()
@@ -330,7 +328,7 @@ def facebook_callback():
     if not short_user_token:
         return f"Token Exchange Error: {res}", 400
 
-    # Step 2: Convert Short-Lived User Token to Long-Lived Token (Never Expire easily)
+    # Step 2: Convert Short-Lived User Token to Long-Lived Token
     long_token_url = (
         f"https://graph.facebook.com/v18.0/oauth/access_token?"
         f"grant_type=fb_exchange_token&"
@@ -355,20 +353,27 @@ def facebook_callback():
     for page in pages:
         page_id = page["id"]
         page_name = page["name"]
-        page_access_token = page["access_token"]  # This token is now long-lived
+        page_access_token = page["access_token"]
 
-        # Store in DB cleanly
+        # CRITICAL FIX: Check if page already exists in DB
+        cursor.execute("SELECT custom_prompt FROM clients WHERE page_id = ?", (page_id,))
+        existing = cursor.fetchone()
+
+        # If page already exists, retain its original prompt.
+        # Otherwise, assign the new prompt submitted in session.
+        prompt_to_save = existing[0] if (existing and existing[0]) else custom_prompt
+
         cursor.execute("""
             INSERT INTO clients (page_id, page_access_token, client_name, custom_prompt, bot_status)
             VALUES (?, ?, ?, ?, 1)
             ON CONFLICT(page_id) DO UPDATE SET
                 page_access_token = excluded.page_access_token,
                 client_name = excluded.client_name,
-                custom_prompt = excluded.custom_prompt,
+                custom_prompt = ?,
                 bot_status = 1
-        """, (page_id, page_access_token, page_name, custom_prompt))
+        """, (page_id, page_access_token, page_name, prompt_to_save, prompt_to_save))
 
-        # Subscribe this page explicitly to Webhook
+        # Subscribe each page explicitly to Webhooks
         sub_url = f"https://graph.facebook.com/v18.0/{page_id}/subscribed_apps?subscribed_fields=messages&access_token={page_access_token}"
         requests.post(sub_url)
 
@@ -404,7 +409,6 @@ def facebook_webhook():
                 for entry in data.get("entry", []):
                     page_id = entry.get("id")
                     
-                    # Fetch specific Page token, prompt, and bot status for this Page ID
                     page_access_token, custom_prompt, bot_is_running = get_client_details(page_id)
                     
                     if not page_access_token or not bot_is_running or not custom_prompt:
@@ -413,7 +417,6 @@ def facebook_webhook():
                     for messaging_event in entry.get("messaging", []):
                         sender_id = messaging_event.get("sender", {}).get("id")
                         
-                        # Prevent bot from replying to its own message
                         if sender_id == page_id:
                             continue
 
