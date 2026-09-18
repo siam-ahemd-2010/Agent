@@ -82,7 +82,7 @@ ADMIN_TEMPLATE = """
     <title>AutoCraft Admin Panel</title>
     <style>
         body { background: #0f172a; color: #f8fafc; font-family: 'Segoe UI', Arial, sans-serif; margin: 0; padding: 40px 20px; }
-        .card { background: #1e293b; max-width: 600px; margin: 0 auto; padding: 30px; border-radius: 16px; box-shadow: 0 10px 25px rgba(0,0,0,0.5); border: 1px solid #334155; }
+        .card { background: #1e293b; max-width: 650px; margin: 0 auto; padding: 30px; border-radius: 16px; box-shadow: 0 10px 25px rgba(0,0,0,0.5); border: 1px solid #334155; }
         textarea, button { width: 100%; padding: 12px; margin: 10px 0; border-radius: 8px; border: 1px solid #475569; font-size: 15px; box-sizing: border-box; }
         textarea { background: #0f172a; color: white; resize: vertical; height: 100px; }
         .page-item { background: #0f172a; padding: 15px; border-radius: 10px; margin-bottom: 12px; border: 1px solid #334155; }
@@ -93,41 +93,41 @@ ADMIN_TEMPLATE = """
 <body>
     <div class="card">
         <h2>AutoCraft SaaS Bot Admin</h2>
-        <p style="color: #38bdf8; font-size: 14px;">Master Control Panel</p>
+        <p style="color: #38bdf8; font-size: 14px;">Multi-Page Management Panel</p>
         
         {% if connected_pages %}
         <div style="margin-bottom: 25px;">
-            <h4 style="color: #38bdf8; margin-bottom: 10px;">কানেক্টেড পেজসমূহ ও ক্লায়েন্ট লিংক:</h4>
+            <h4 style="color: #38bdf8; margin-bottom: 10px;">কানেক্টেড পেজসমূহ:</h4>
             {% for p in connected_pages %}
                 <div class="page-item">
-                    <b>পেজ নাম: {{ p[1] }}</b> <br>
+                    <b>পেজ নাম: {{ p[1] }}</b> (ID: {{ p[0] }})<br>
                     <small style="color: {{ '#4ade80' if p[2] == 1 else '#f87171' }};">
-                        স্ট্যাটাস: {{ 'অন (ON)' if p[2] == 1 else 'অফ (OFF)' }}
+                        স্ট্যাটাস: {{ 'অন (ACTIVE)' if p[2] == 1 else 'অফ (INACTIVE)' }}
                     </small>
-                    <span class="client-link">ক্লায়েন্ট লিংক: <b>{{ base_url }}/control?page_id={{ p[0] }}</b></span>
+                    <span class="client-link">ক্লায়েন্ট কন্ট্রোল লিংক: <b>{{ base_url }}/control?page_id={{ p[0] }}</b></span>
                 </div>
             {% endfor %}
         </div>
         {% endif %}
 
         <form action="/save-prompt" method="POST">
-            <label>System Prompt (বটের নির্দেশিকা):</label>
+            <label>নতুন পেজের জন্য System Prompt (বটের নির্দেশিকা):</label>
             <textarea name="custom_prompt" placeholder="যেমন: আপনি ফ্যাশন হাউসের সেলস প্রতিনিধি..." required></textarea>
-            <button type="submit" style="background: #2563eb; color: white; font-weight: bold; cursor: pointer;">প্রম্পট সেভ করুন ও ফেসবুক পেজ কানেক্ট করুন</button>
+            <button type="submit" style="background: #2563eb; color: white; font-weight: bold; cursor: pointer;">নতুন ফেসবুক পেজ কানেক্ট করুন</button>
         </form>
     </div>
 </body>
 </html>
 """
 
-# --- Client Single Page Control Template ---
+# --- Client Control Template ---
 CLIENT_CONTROL_TEMPLATE = """
 <!DOCTYPE html>
 <html lang="bn">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>{{ client_name }} - AI Bot Control</title>
+    <title>{{ client_name }} - Bot Control</title>
     <style>
         * { box-sizing: border-box; }
         body { 
@@ -171,43 +171,19 @@ CLIENT_CONTROL_TEMPLATE = """
             font-size: 18px;
             font-weight: bold;
         }
-        .dot {
-            width: 12px;
-            height: 12px;
-            border-radius: 50%;
-            display: inline-block;
-        }
+        .dot { width: 12px; height: 12px; border-radius: 50%; display: inline-block; }
         .dot-active { background: #22c55e; box-shadow: 0 0 12px #22c55e; }
         .dot-inactive { background: #ef4444; box-shadow: 0 0 12px #ef4444; }
 
-        .switch-box { margin: 30px 0; }
-        .switch {
-            position: relative;
-            display: inline-block;
-            width: 90px;
-            height: 48px;
-        }
+        .switch { position: relative; display: inline-block; width: 90px; height: 48px; }
         .switch input { opacity: 0; width: 0; height: 0; }
         .slider {
-            position: absolute;
-            cursor: pointer;
-            top: 0; left: 0; right: 0; bottom: 0;
-            background-color: #334155;
-            transition: .4s;
-            border-radius: 34px;
-            border: 2px solid #475569;
+            position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0;
+            background-color: #334155; transition: .4s; border-radius: 34px; border: 2px solid #475569;
         }
         .slider:before {
-            position: absolute;
-            content: "";
-            height: 38px;
-            width: 38px;
-            left: 3px;
-            bottom: 3px;
-            background-color: white;
-            transition: .4s;
-            border-radius: 50%;
-            box-shadow: 0 2px 5px rgba(0,0,0,0.3);
+            position: absolute; content: ""; height: 38px; width: 38px; left: 3px; bottom: 3px;
+            background-color: white; transition: .4s; border-radius: 50%; box-shadow: 0 2px 5px rgba(0,0,0,0.3);
         }
         input:checked + .slider { background: linear-gradient(135deg, #16a34a, #22c55e); border-color: #4ade80; }
         input:checked + .slider:before { transform: translateX(40px); }
@@ -217,7 +193,7 @@ CLIENT_CONTROL_TEMPLATE = """
     <div class="container">
         <span class="page-badge">{{ client_name }}</span>
         <h2 style="margin: 0 0 10px 0;">AI Agent Control</h2>
-        <p style="color: #94a3b8; font-size: 14px; margin: 0;">অটোমেটেড বটের স্ট্যাটাস পরিবর্তন করুন</p>
+        <p style="color: #94a3b8; font-size: 14px; margin: 0;">অটোমেটেড বটের স্ট্যাটাস অন/অফ করুন</p>
 
         <form action="/toggle-client-bot" method="POST">
             <input type="hidden" name="page_id" value="{{ page_id }}">
@@ -225,11 +201,11 @@ CLIENT_CONTROL_TEMPLATE = """
             <div class="status-indicator">
                 <span class="dot {{ 'dot-active' if bot_status == 1 else 'dot-inactive' }}"></span>
                 <span style="color: {{ '#4ade80' if bot_status == 1 else '#f87171' }}">
-                    {{ 'বট বর্তমানে চালু (ACTIVE)' if bot_status == 1 else 'বট বর্তমানে বন্ধ (INACTIVE)' }}
+                    {{ 'বট চালু (ACTIVE)' if bot_status == 1 else 'বট বন্ধ (INACTIVE)' }}
                 </span>
             </div>
 
-            <div class="switch-box">
+            <div style="margin: 30px 0;">
                 <label class="switch">
                     <input type="checkbox" onchange="this.form.submit()" {{ 'checked' if bot_status == 1 else '' }}>
                     <span class="slider"></span>
@@ -263,7 +239,7 @@ def client_control():
     conn.close()
 
     if not row:
-        return "Page not found!", 404
+        return "Page not found in database!", 404
 
     return render_template_string(CLIENT_CONTROL_TEMPLATE, page_id=page_id, client_name=row[0], bot_status=row[1])
 
@@ -301,6 +277,7 @@ def facebook_callback():
         
     custom_prompt = session.get('custom_prompt', "আপনি এই পেজের প্রফেশনাল এআই অ্যাসিস্ট্যান্ট।")
 
+    # Step 1: Exchange code for short-lived User Access Token
     token_url = (
         f"https://graph.facebook.com/v18.0/oauth/access_token?"
         f"client_id={FB_APP_ID}&"
@@ -314,6 +291,7 @@ def facebook_callback():
     if not user_access_token:
         return f"Token Error: {res}", 400
 
+    # Step 2: Get user pages and page access tokens
     pages_url = f"https://graph.facebook.com/v18.0/me/accounts?access_token={user_access_token}"
     pages_res = requests.get(pages_url).json()
     
@@ -329,11 +307,25 @@ def facebook_callback():
         page_name = page["name"]
         page_access_token = page["access_token"]
 
-        cursor.execute("""
-            INSERT OR REPLACE INTO clients (page_id, page_access_token, client_name, custom_prompt, bot_status)
-            VALUES (?, ?, ?, ?, 1)
-        """, (page_id, page_access_token, page_name, custom_prompt))
+        # Check if page already exists so we don't overwrite prompt unintentionally
+        cursor.execute("SELECT custom_prompt FROM clients WHERE page_id = ?", (page_id,))
+        existing = cursor.fetchone()
 
+        prompt_to_save = custom_prompt
+        if existing and existing[0]:
+            # Retain old prompt if already connected earlier
+            prompt_to_save = existing[0]
+
+        cursor.execute("""
+            INSERT INTO clients (page_id, page_access_token, client_name, custom_prompt, bot_status)
+            VALUES (?, ?, ?, ?, 1)
+            ON CONFLICT(page_id) DO UPDATE SET
+                page_access_token = excluded.page_access_token,
+                client_name = excluded.client_name,
+                bot_status = 1
+        """, (page_id, page_access_token, page_name, prompt_to_save))
+
+        # Subscribe this specific page to webhooks using its own Access Token
         sub_url = f"https://graph.facebook.com/v18.0/{page_id}/subscribed_apps?subscribed_fields=messages&access_token={page_access_token}"
         requests.post(sub_url)
 
@@ -342,7 +334,7 @@ def facebook_callback():
 
     return f"""
     <div style='background:#0f172a; color:white; text-align:center; padding:50px; font-family:Arial;'>
-        <h1 style='color:#22c55e;'>অভিনন্দন! আপনার ফেসবুক পেজ(সমূহ) সফলভাবে কানেক্ট হয়েছে।</h1>
+        <h1 style='color:#22c55e;'>অভিনন্দন! পেজটি সফলভাবে কানেক্ট হয়েছে।</h1>
         <p><a href='/' style='color:#38bdf8;'>এডমিন ড্যাশবোর্ডে ফিরে যান</a></p>
     </div>
     """
@@ -368,16 +360,21 @@ def facebook_webhook():
             if data.get("object") == "page":
                 for entry in data.get("entry", []):
                     page_id = entry.get("id")
+                    
+                    # Fetch specific Page token, prompt, and bot status for this Page ID
                     page_access_token, custom_prompt, bot_is_running = get_client_details(page_id)
                     
                     if not page_access_token or not bot_is_running or not custom_prompt:
                         continue
 
                     for messaging_event in entry.get("messaging", []):
-                        sender_id = messaging_event["sender"]["id"]
+                        sender_id = messaging_event.get("sender", {}).get("id")
                         
+                        # Prevent bot from replying to itself
+                        if sender_id == page_id:
+                            continue
+
                         user_message_text = ""
-                        image_url = None
                         audio_url = None
 
                         if "message" in messaging_event and "text" in messaging_event["message"]:
@@ -386,13 +383,11 @@ def facebook_webhook():
                         if "message" in messaging_event and "attachments" in messaging_event["message"]:
                             for att in messaging_event["message"]["attachments"]:
                                 if att["type"] == "image":
-                                    image_url = att["payload"]["url"]
                                     user_message_text = "এই ছবিটি দেখে আপনার সার্ভিস অনুযায়ী রেসপন্স করুন।"
                                 elif att["type"] == "audio":
                                     audio_url = att["payload"]["url"]
-                                    user_message_text = "ভয়েস মেসেজ পাঠানো হয়েছে।"
 
-                        if user_message_text or image_url or audio_url:
+                        if user_message_text or audio_url:
                             chat_messages = get_user_history(page_id, sender_id, custom_prompt)
                             final_input_text = user_message_text
 
